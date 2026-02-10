@@ -286,6 +286,32 @@ fn cmd_archive_grid(database: State<Database>, audit_database: State<AuditDataba
     grids_db::archive_grid(&database, &audit_database, &grid_id, &user)
 }
 
+// Duplique une grille existante
+#[tauri::command]
+fn cmd_duplicate_grid(database: State<Database>, audit_database: State<AuditDatabase>, token: String, grid_id: String, new_id: String, new_name: String) -> Result<String, String> {
+    let user = require_role(&database, &token, &["admin"])?;
+    let source = grids_db::find_grid_by_id(&database, &grid_id, None)
+        .ok_or_else(|| format!("Grille '{}' introuvable", grid_id))?;
+
+    let duplicated = GridInfo {
+        id: new_id.clone(),
+        name: new_name,
+        code: format!("{}-copie", source.code),
+        version: "1".to_string(),
+        description: source.description.clone(),
+        icon: source.icon.clone(),
+        color: source.color.clone(),
+        sections: source.sections.clone(),
+    };
+
+    grids_db::save_grid(&database, &audit_database, &duplicated, &user)?;
+    audit_database.log_grid_action(
+        &user.id, &user.username, "DUPLICATE_GRID", &new_id,
+        None, None, Some(&format!("Dupliquée depuis '{}'", grid_id)),
+    );
+    Ok(new_id)
+}
+
 // Ajoute une section à une grille
 #[tauri::command]
 fn cmd_create_section(database: State<Database>, audit_database: State<AuditDatabase>, token: String, req: CreateSectionRequest) -> Result<u32, String> {
@@ -551,7 +577,7 @@ fn main() {
             // Grilles (ancien)
             list_grids, get_grid, get_sections,
             // Grilles admin (nouveau)
-            cmd_list_grids_admin, cmd_create_grid, cmd_update_grid_meta, cmd_archive_grid,
+            cmd_list_grids_admin, cmd_create_grid, cmd_update_grid_meta, cmd_archive_grid, cmd_duplicate_grid,
             cmd_create_section, cmd_update_section, cmd_delete_section,
             cmd_create_criterion, cmd_update_criterion, cmd_delete_criterion,
             cmd_list_grid_versions, cmd_create_grid_version, cmd_get_grid_version, cmd_rollback_grid_version,

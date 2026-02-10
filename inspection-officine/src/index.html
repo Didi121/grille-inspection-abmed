@@ -1730,6 +1730,7 @@ async function renderGridsAdmin() {
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn-primary" style="width:auto;padding:6px 12px;font-size:12px" onclick="openGridEditor('${g.id}')">Ouvrir / Modifier</button>
+            <button class="btn-sm" onclick="duplicateGrid('${g.id}','${g.name}')">Dupliquer</button>
             <button class="btn-sm" onclick="showGridVersions('${g.id}')">Versions</button>
             <button class="btn-sm" style="color:var(--accent)" onclick="archiveGrid('${g.id}')">Supprimer</button>
           </div>
@@ -1961,6 +1962,18 @@ async function archiveGrid(gridId) {
   if(!confirm('Supprimer/archiver cette grille ? Elle ne sera plus visible pour les inspections.')) return;
   try {
     await invoke('cmd_archive_grid',{token:session.token, gridId});
+    renderGridsAdmin();
+  } catch(e){alert('Erreur: '+e)}
+}
+
+// ── Dupliquer une grille ──
+async function duplicateGrid(gridId, gridName) {
+  const newId = prompt('Identifiant de la copie :', gridId + '-copie');
+  if(!newId) return;
+  const newName = prompt('Nom de la copie :', gridName + ' (copie)');
+  if(!newName) return;
+  try {
+    await invoke('cmd_duplicate_grid',{token:session.token, gridId, newId, newName});
     renderGridsAdmin();
   } catch(e){alert('Erreur: '+e)}
 }

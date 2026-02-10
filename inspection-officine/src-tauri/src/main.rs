@@ -11,10 +11,10 @@ mod migration;
 mod grids_db;
 mod grid_diff;
 
-use grid::{GridInfo, Section, Criterion};
+use grid::{GridInfo, Section};
 use db::Database;
 use users::{CreateUserRequest, UpdateUserRequest, SessionInfo, User};
-use audit::{AuditEntry, AuditFilter};
+// audit module kept for backward compatibility
 use audit_db::{AuditDatabase, AuditFilter as AuditDbFilter, AuditEntry as AuditDbEntry};
 use storage::{SavedInspection, SavedResponse, CreateInspectionRequest};
 use serde::{Deserialize, Serialize};
@@ -299,7 +299,7 @@ fn cmd_create_section(database: State<Database>, audit_database: State<AuditData
 
     let new_id = max_id + 1;
 
-    let section = Section {
+    let _section = Section {
         id: new_id,
         title: req.title.clone(),
         items: vec![],

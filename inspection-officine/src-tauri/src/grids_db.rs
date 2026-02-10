@@ -3,7 +3,7 @@ use crate::audit_db::AuditDatabase;
 use crate::grid::{GridInfo, Section, Criterion};
 use crate::users::User;
 use rusqlite::params;
-use serde_json::{json, Value};
+use serde_json;
 
 /// Charge toutes les grilles actives depuis la base de données
 pub fn load_grids_from_db(db: &Database) -> Vec<GridInfo> {
@@ -44,9 +44,12 @@ pub fn load_grids_from_db(db: &Database) -> Vec<GridInfo> {
             color,
             sections,
         })
-    }).unwrap_or_default();
+    });
 
-    grids.filter_map(|r| r.ok()).collect()
+    match grids {
+        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+        Err(_) => Vec::new(),
+    }
 }
 
 /// Charge les sections d'une grille spécifique

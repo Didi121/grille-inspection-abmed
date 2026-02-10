@@ -177,7 +177,7 @@ impl AuditDatabase {
         if let Some(ref to) = filter.to_date {
             sql.push_str(&format!(" AND timestamp <= ?{}", param_idx));
             bind_values.push(Box::new(to.clone()));
-            param_idx += 1;
+            let _ = param_idx;
         }
 
         sql.push_str(" ORDER BY timestamp DESC");

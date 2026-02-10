@@ -7,7 +7,6 @@
     "frontendDist": "../src"
   },
   "app": {
-    "title": "ABMed - Inspection Officine",
     "windows": [
       {
         "title": "ABMed - Inspection Officine",

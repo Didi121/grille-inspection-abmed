@@ -66,26 +66,82 @@ impl Database {
                 UNIQUE(inspection_id, criterion_id)
             );
 
-            -- Audit trail
-            CREATE TABLE IF NOT EXISTS audit_log (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-                user_id     TEXT REFERENCES users(id),
-                username    TEXT,
-                action      TEXT NOT NULL,
-                entity_type TEXT,  -- 'inspection','response','user','session'
-                entity_id   TEXT,
-                details     TEXT,  -- JSON libre
-                ip_info     TEXT
+            -- ═══════════════════════════════════════════════════════════
+            -- TABLES GRILLES (gestion dynamique)
+            -- ═══════════════════════════════════════════════════════════
+
+            -- Grilles principales (stockage des grilles)
+            CREATE TABLE IF NOT EXISTS grids (
+                id              TEXT NOT NULL,
+                version         TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                code            TEXT NOT NULL,
+                description     TEXT NOT NULL,
+                icon            TEXT NOT NULL,
+                color           TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'active'
+                                CHECK(status IN ('draft','active','archived')),
+                is_current      INTEGER NOT NULL DEFAULT 1,
+                created_by      TEXT REFERENCES users(id),
+                created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                PRIMARY KEY (id, version)
             );
 
-            -- Index pour performance
-            CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
-            CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
-            CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
+            -- Sections des grilles
+            CREATE TABLE IF NOT EXISTS grid_sections (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                grid_id         TEXT NOT NULL,
+                grid_version    TEXT NOT NULL,
+                section_id      INTEGER NOT NULL,
+                title           TEXT NOT NULL,
+                display_order   INTEGER NOT NULL,
+                FOREIGN KEY (grid_id, grid_version) REFERENCES grids(id, version) ON DELETE CASCADE,
+                UNIQUE(grid_id, grid_version, section_id)
+            );
+
+            -- Critères des grilles
+            CREATE TABLE IF NOT EXISTS grid_criteria (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                grid_id         TEXT NOT NULL,
+                grid_version    TEXT NOT NULL,
+                section_id      INTEGER NOT NULL,
+                criterion_id    INTEGER NOT NULL,
+                reference       TEXT NOT NULL,
+                description     TEXT NOT NULL,
+                pre_opening     INTEGER NOT NULL DEFAULT 0,
+                display_order   INTEGER NOT NULL,
+                FOREIGN KEY (grid_id, grid_version) REFERENCES grids(id, version) ON DELETE CASCADE,
+                UNIQUE(grid_id, grid_version, criterion_id)
+            );
+
+            -- Historique des versions de grilles
+            CREATE TABLE IF NOT EXISTS grid_versions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                grid_id         TEXT NOT NULL,
+                version         TEXT NOT NULL,
+                snapshot_json   TEXT NOT NULL,
+                change_summary  TEXT,
+                created_by      TEXT REFERENCES users(id),
+                created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (grid_id, version) REFERENCES grids(id, version),
+                UNIQUE(grid_id, version)
+            );
+
+            -- ═══════════════════════════════════════════════════════════
+            -- INDEX POUR PERFORMANCE
+            -- ═══════════════════════════════════════════════════════════
+
             CREATE INDEX IF NOT EXISTS idx_responses_insp ON responses(inspection_id);
             CREATE INDEX IF NOT EXISTS idx_inspections_status ON inspections(status);
             CREATE INDEX IF NOT EXISTS idx_inspections_user ON inspections(created_by);
+
+            -- Grilles
+            CREATE INDEX IF NOT EXISTS idx_grids_status ON grids(status);
+            CREATE INDEX IF NOT EXISTS idx_grids_current ON grids(is_current);
+            CREATE INDEX IF NOT EXISTS idx_grid_sections_grid ON grid_sections(grid_id, grid_version);
+            CREATE INDEX IF NOT EXISTS idx_grid_criteria_grid ON grid_criteria(grid_id, grid_version);
+            CREATE INDEX IF NOT EXISTS idx_grid_criteria_section ON grid_criteria(grid_id, grid_version, section_id);
         ").expect("Erreur création tables");
 
         // Créer l'admin par défaut s'il n'existe pas

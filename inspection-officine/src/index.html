@@ -1299,6 +1299,9 @@ small {
 
   <!-- AUDIT -->
   <div class="screen" id="s-audit"><div class="panel" id="auditPanel"></div></div>
+
+  <!-- GRILLES ADMIN -->
+  <div class="screen" id="s-grids"><div class="panel" id="gridsPanel"></div></div>
 </div>
 
 <!-- Modal -->
@@ -1451,6 +1454,7 @@ function buildTopNav() {
   const isAdmin = ['admin','lead_inspector'].includes(session.user.role);
   nav.innerHTML = `
     <button class="nav-btn" data-s="dash" onclick="goToDashboard()">Inspections</button>
+    ${isAdmin?'<button class="nav-btn" data-s="grids" onclick="showScreen(\'grids\');renderGridsAdmin()">Grilles</button>':''}
     ${isAdmin?'<button class="nav-btn" data-s="users" onclick="showScreen(\'users\');renderUsers()">Utilisateurs</button>':''}
     ${isAdmin?'<button class="nav-btn" data-s="audit" onclick="showScreen(\'audit\');renderAudit()">Audit</button>':''}
   `;
@@ -1698,6 +1702,296 @@ async function setInspStatus(status) {
   } catch(e){ alert(e); }
 }
 
+// ═══════════════════ GRILLES ADMIN PANEL ═══════════════════
+
+// ── Liste des grilles ──
+async function renderGridsAdmin() {
+  try {
+    const grids = await invoke('cmd_list_grids_admin',{token:session.token});
+    document.getElementById('gridsPanel').innerHTML=`
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-m)">
+        <h2>Gestion des grilles</h2>
+        <button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="showCreateGridModal()">+ Nouvelle grille</button>
+      </div>
+      ${grids.length===0?'<p style="color:var(--text-muted)">Aucune grille active</p>':''}
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:var(--space-s)">
+      ${grids.map(g=>`
+        <div style="border:1px solid var(--border);padding:var(--space-s);background:var(--surface)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <span style="font-size:28px">${g.icon}</span>
+            <div>
+              <strong style="font-size:16px">${g.name}</strong><br/>
+              <span class="mono" style="font-size:12px;color:var(--text-muted)">${g.code}</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:16px;font-size:13px;margin-bottom:12px">
+            <span><strong>${g.section_count}</strong> sections</span>
+            <span><strong>${g.criteria_count}</strong> critères</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn-primary" style="width:auto;padding:6px 12px;font-size:12px" onclick="openGridEditor('${g.id}')">Ouvrir / Modifier</button>
+            <button class="btn-sm" onclick="showGridVersions('${g.id}')">Versions</button>
+            <button class="btn-sm" style="color:var(--accent)" onclick="archiveGrid('${g.id}')">Supprimer</button>
+          </div>
+        </div>
+      `).join('')}
+      </div>`;
+  } catch(e){ document.getElementById('gridsPanel').innerHTML=`<p style="color:var(--accent)">Erreur: ${e}</p>`; }
+}
+
+// ── Création nouvelle grille ──
+function showCreateGridModal() {
+  openModal(`<h3>Nouvelle grille</h3>
+    <div class="field"><label>Identifiant unique</label><input id="cgId" placeholder="ex: pui, laboratoire"/></div>
+    <div class="field"><label>Nom complet</label><input id="cgName" placeholder="Inspection Pharmacie à Usage Interne"/></div>
+    <div class="field"><label>Code référence</label><input id="cgCode" placeholder="IP-F-0020"/></div>
+    <div class="field"><label>Description</label><textarea id="cgDesc" placeholder="Description de la grille..." rows="3"></textarea></div>
+    <div style="display:flex;gap:12px">
+      <div class="field"><label>Icône</label><input id="cgIcon" value="🔬" style="width:60px;font-size:20px;text-align:center"/></div>
+      <div class="field" style="flex:1"><label>Couleur</label><input id="cgColor" type="color" value="#8b5cf6" style="width:100%;height:36px"/></div>
+    </div>
+    <div class="modal-actions"><button class="btn-sm" onclick="closeModal()">Annuler</button><button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="doCreateGrid()">Créer la grille</button></div>`);
+}
+async function doCreateGrid() {
+  const id=document.getElementById('cgId').value.trim();
+  const name=document.getElementById('cgName').value.trim();
+  if(!id||!name){alert('ID et nom sont obligatoires');return;}
+  try {
+    await invoke('cmd_create_grid',{token:session.token, req:{
+      id, name, code:document.getElementById('cgCode').value.trim(),
+      description:document.getElementById('cgDesc').value.trim(),
+      icon:document.getElementById('cgIcon').value, color:document.getElementById('cgColor').value
+    }});
+    closeModal();
+    renderGridsAdmin();
+  } catch(e){alert('Erreur: '+e)}
+}
+
+// ── Éditeur complet d'une grille (sections + critères) ──
+async function openGridEditor(gridId) {
+  try {
+    const grid = await invoke('get_grid',{gridId});
+    if(!grid) throw 'Grille introuvable';
+    const p = document.getElementById('gridsPanel');
+    let html = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-s)">
+        <div style="display:flex;align-items:center;gap:12px">
+          <button class="btn-sm" onclick="renderGridsAdmin()">← Retour</button>
+          <span style="font-size:28px">${grid.icon}</span>
+          <div>
+            <strong style="font-size:18px">${grid.name}</strong>
+            <span class="mono" style="font-size:12px;color:var(--text-muted);margin-left:8px">${grid.code} — v${grid.version}</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn-sm" onclick="showEditMetaModal('${gridId}','${esc(grid.name)}','${esc(grid.description)}','${grid.icon}')">Métadonnées</button>
+          <button class="btn-sm" onclick="showGridVersions('${gridId}')">Versions</button>
+          <button class="btn-sm" onclick="doExportGrid('${gridId}')">Exporter JSON</button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-s);padding:8px 12px;background:var(--surface);border:1px solid var(--border)">
+        <span style="font-size:14px"><strong>${grid.sections.length}</strong> sections — <strong>${grid.sections.reduce((s,sec)=>s+sec.items.length,0)}</strong> critères</span>
+        <button class="btn-primary" style="width:auto;padding:6px 12px;font-size:12px" onclick="showAddSectionModal('${gridId}')">+ Ajouter une section</button>
+      </div>`;
+
+    // Afficher chaque section avec ses critères
+    grid.sections.forEach((section,sIdx) => {
+      html += `
+      <div style="border:1px solid var(--border);margin-bottom:var(--space-s)">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border)">
+          <strong style="font-size:14px">${section.id}. ${section.title}</strong>
+          <div style="display:flex;gap:6px">
+            <button class="btn-sm" style="font-size:11px" onclick="showAddCriterionModal('${gridId}',${section.id},'${esc(section.title)}')">+ Critère</button>
+            <button class="btn-sm" style="font-size:11px" onclick="showEditSectionModal('${gridId}',${section.id},'${esc(section.title)}')">Renommer</button>
+            <button class="btn-sm" style="font-size:11px;color:var(--accent)" onclick="doDeleteSection('${gridId}',${section.id})">Suppr.</button>
+          </div>
+        </div>`;
+
+      if(section.items.length===0) {
+        html += `<div style="padding:12px 14px;font-size:13px;color:var(--text-muted)">Aucun critère dans cette section</div>`;
+      } else {
+        html += `<table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:var(--gray-100)">
+            <th style="padding:6px 10px;text-align:left;width:30px">#</th>
+            <th style="padding:6px 10px;text-align:left;width:25px">Pré</th>
+            <th style="padding:6px 10px;text-align:left;width:140px">Référence</th>
+            <th style="padding:6px 10px;text-align:left">Description</th>
+            <th style="padding:6px 10px;text-align:right;width:110px">Actions</th>
+          </tr></thead><tbody>`;
+        section.items.forEach(c => {
+          html += `<tr style="border-bottom:1px solid var(--gray-200)">
+            <td style="padding:5px 10px" class="mono">${c.id}</td>
+            <td style="padding:5px 10px">${c.pre_opening?'<span style="color:var(--accent);font-weight:bold">►</span>':''}</td>
+            <td style="padding:5px 10px" class="mono" title="${c.reference}">${c.reference.length>22?c.reference.substring(0,22)+'…':c.reference}</td>
+            <td style="padding:5px 10px">${c.description}</td>
+            <td style="padding:5px 10px;text-align:right">
+              <button class="btn-sm" style="font-size:11px" onclick="showEditCriterionModal('${gridId}',${c.id},'${esc(c.reference)}','${esc(c.description)}',${c.pre_opening})">Modifier</button>
+              <button class="btn-sm" style="font-size:11px;color:var(--accent)" onclick="doDeleteCriterion('${gridId}',${c.id})">×</button>
+            </td>
+          </tr>`;
+        });
+        html += `</tbody></table>`;
+      }
+      html += `</div>`;
+    });
+
+    p.innerHTML = html;
+  } catch(e){ alert('Erreur: '+e); }
+}
+
+// ── Modifier métadonnées ──
+function showEditMetaModal(gridId, name, desc, icon) {
+  openModal(`<h3>Métadonnées</h3>
+    <div class="field"><label>Nom</label><input id="egName" value="${name}"/></div>
+    <div class="field"><label>Description</label><textarea id="egDesc" rows="3">${desc}</textarea></div>
+    <div class="field"><label>Icône</label><input id="egIcon" value="${icon}" style="width:60px;font-size:20px;text-align:center"/></div>
+    <div class="modal-actions"><button class="btn-sm" onclick="closeModal()">Annuler</button><button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="doEditMeta('${gridId}')">Enregistrer</button></div>`);
+}
+async function doEditMeta(gridId) {
+  try {
+    await invoke('cmd_update_grid_meta',{token:session.token, gridId,
+      name:document.getElementById('egName').value,
+      description:document.getElementById('egDesc').value,
+      icon:document.getElementById('egIcon').value
+    });
+    closeModal(); openGridEditor(gridId);
+  } catch(e){alert('Erreur: '+e)}
+}
+
+// ── Ajouter section ──
+function showAddSectionModal(gridId) {
+  openModal(`<h3>Nouvelle section</h3>
+    <div class="field"><label>Titre de la section</label><input id="asTitle" placeholder="Ex: Personnel"/></div>
+    <div class="modal-actions"><button class="btn-sm" onclick="closeModal()">Annuler</button><button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="doAddSection('${gridId}')">Ajouter</button></div>`);
+}
+async function doAddSection(gridId) {
+  const title=document.getElementById('asTitle').value.trim();
+  if(!title){alert('Titre obligatoire');return;}
+  try {
+    await invoke('cmd_create_section',{token:session.token, req:{grid_id:gridId, title}});
+    closeModal(); openGridEditor(gridId);
+  } catch(e){alert('Erreur: '+e)}
+}
+
+// ── Renommer section ──
+function showEditSectionModal(gridId, sectionId, title) {
+  openModal(`<h3>Renommer la section</h3>
+    <div class="field"><label>Titre</label><input id="esTitle" value="${title}"/></div>
+    <div class="modal-actions"><button class="btn-sm" onclick="closeModal()">Annuler</button><button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="doEditSection('${gridId}',${sectionId})">Enregistrer</button></div>`);
+}
+async function doEditSection(gridId, sectionId) {
+  try {
+    await invoke('cmd_update_section',{token:session.token, gridId, sectionId, title:document.getElementById('esTitle').value.trim()});
+    closeModal(); openGridEditor(gridId);
+  } catch(e){alert('Erreur: '+e)}
+}
+
+// ── Supprimer section ──
+async function doDeleteSection(gridId, sectionId) {
+  if(!confirm('Supprimer cette section et tous ses critères ?')) return;
+  try {
+    await invoke('cmd_delete_section',{token:session.token, gridId, sectionId});
+    openGridEditor(gridId);
+  } catch(e){alert('Erreur: '+e)}
+}
+
+// ── Ajouter critère ──
+function showAddCriterionModal(gridId, sectionId, sectionTitle) {
+  openModal(`<h3>Nouveau critère — ${sectionTitle}</h3>
+    <div class="field"><label>Référence</label><input id="acRef" placeholder="Ex: BPDisp 1.3"/></div>
+    <div class="field"><label>Description</label><textarea id="acDesc" rows="3" placeholder="Description du critère..."></textarea></div>
+    <div class="field"><label><input type="checkbox" id="acPre"/> Critère pré-ouverture (obligatoire avant autorisation)</label></div>
+    <div class="modal-actions"><button class="btn-sm" onclick="closeModal()">Annuler</button><button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="doAddCriterion('${gridId}',${sectionId})">Ajouter</button></div>`);
+}
+async function doAddCriterion(gridId, sectionId) {
+  const reference=document.getElementById('acRef').value.trim();
+  const description=document.getElementById('acDesc').value.trim();
+  if(!description){alert('Description obligatoire');return;}
+  try {
+    await invoke('cmd_create_criterion',{token:session.token, req:{
+      grid_id:gridId, section_id:sectionId, reference,
+      description, pre_opening:document.getElementById('acPre').checked
+    }});
+    closeModal(); openGridEditor(gridId);
+  } catch(e){alert('Erreur: '+e)}
+}
+
+// ── Modifier critère ──
+function showEditCriterionModal(gridId, criterionId, reference, description, preOpening) {
+  openModal(`<h3>Modifier critère #${criterionId}</h3>
+    <div class="field"><label>Référence</label><input id="ecRef" value="${reference}"/></div>
+    <div class="field"><label>Description</label><textarea id="ecDesc" rows="3">${description}</textarea></div>
+    <div class="field"><label><input type="checkbox" id="ecPre" ${preOpening?'checked':''}/> Critère pré-ouverture</label></div>
+    <div class="modal-actions"><button class="btn-sm" onclick="closeModal()">Annuler</button><button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="doEditCriterion('${gridId}',${criterionId})">Enregistrer</button></div>`);
+}
+async function doEditCriterion(gridId, criterionId) {
+  try {
+    await invoke('cmd_update_criterion',{token:session.token, gridId, criterionId,
+      reference:document.getElementById('ecRef').value.trim(),
+      description:document.getElementById('ecDesc').value.trim(),
+      preOpening:document.getElementById('ecPre').checked
+    });
+    closeModal(); openGridEditor(gridId);
+  } catch(e){alert('Erreur: '+e)}
+}
+
+// ── Supprimer critère ──
+async function doDeleteCriterion(gridId, criterionId) {
+  if(!confirm('Supprimer ce critère ?')) return;
+  try {
+    await invoke('cmd_delete_criterion',{token:session.token, gridId, criterionId});
+    openGridEditor(gridId);
+  } catch(e){alert('Erreur: '+e)}
+}
+
+// ── Export JSON ──
+async function doExportGrid(gridId) {
+  try {
+    const json = await invoke('cmd_export_grid_json',{token:session.token, gridId});
+    const blob = new Blob([json], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'grille-'+gridId+'-'+Date.now()+'.json';
+    a.click();
+  } catch(e){alert('Erreur: '+e)}
+}
+
+// ── Archiver / Supprimer grille ──
+async function archiveGrid(gridId) {
+  if(!confirm('Supprimer/archiver cette grille ? Elle ne sera plus visible pour les inspections.')) return;
+  try {
+    await invoke('cmd_archive_grid',{token:session.token, gridId});
+    renderGridsAdmin();
+  } catch(e){alert('Erreur: '+e)}
+}
+
+// ── Versions et rollback ──
+async function showGridVersions(gridId) {
+  try {
+    const versions = await invoke('cmd_list_grid_versions',{token:session.token, gridId});
+    let html = `<h3>Historique des versions</h3>`;
+    if(versions.length===0){ html += '<p style="color:var(--text-muted)">Aucune version</p>'; }
+    versions.forEach(v=>{
+      html += `<div style="padding:10px;border:1px solid var(--border);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <strong>Version ${v[0]}</strong><br/>
+          <small style="color:var(--text-muted)">${v[2]} — ${v[1]||'Aucun résumé'}</small>
+        </div>
+        <button class="btn-sm" onclick="rollbackVersion('${gridId}','${v[0]}')">Restaurer</button>
+      </div>`;
+    });
+    html += `<div class="modal-actions"><button class="btn-sm" onclick="closeModal()">Fermer</button></div>`;
+    openModal(html);
+  } catch(e){alert('Erreur: '+e)}
+}
+async function rollbackVersion(gridId, version) {
+  if(!confirm('Restaurer la version '+version+' ? Une nouvelle version sera créée.')) return;
+  try {
+    await invoke('cmd_rollback_grid_version',{token:session.token, gridId, targetVersion:version});
+    closeModal(); openGridEditor(gridId);
+  } catch(e){alert('Erreur: '+e)}
+}
+
 // ═══════════════════ USERS PANEL ═══════════════════
 async function renderUsers() {
   try {
@@ -1760,14 +2054,27 @@ async function reactivateUser(id) { try { await invoke('cmd_update_user',{token:
 let auditPage = 0;
 async function renderAudit(page) {
   if(page!==undefined) auditPage=page;
-  const limit=50, offset=auditPage*limit;
+  const limit=100, offset=auditPage*limit;
   try {
     const logs = await invoke('cmd_query_audit',{token:session.token, filter:{limit, offset}});
     const total = await invoke('cmd_count_audit',{token:session.token, filter:{}});
     const pages = Math.ceil(total/limit);
     document.getElementById('auditPanel').innerHTML=`
       <h2>Journal d'audit <span style="font-size:14px;color:var(--text-muted);font-weight:400">${total} entrées</span></h2>
-      <table class="tbl"><thead><tr><th>Date/Heure</th><th>Utilisateur</th><th>Action</th><th>Entité</th><th>ID</th><th>Détails</th></tr></thead><tbody>
+      <div style="margin-bottom:var(--space-m);display:flex;gap:8px;flex-wrap:wrap">
+        <input type="date" id="auditFromDate" placeholder="Depuis" style="padding:4px 8px;font-size:12px"/>
+        <input type="date" id="auditToDate" placeholder="Jusqu'au" style="padding:4px 8px;font-size:12px"/>
+        <select id="auditAction" style="padding:4px 8px;font-size:12px">
+          <option value="">Toutes les actions</option>
+          <option value="LOGIN">LOGIN</option>
+          <option value="LOGOUT">LOGOUT</option>
+          <option value="CREATE_GRID">CREATE_GRID</option>
+          <option value="UPDATE_GRID_META">UPDATE_GRID_META</option>
+        </select>
+        <button class="btn-sm" onclick="renderAudit()" style="font-size:12px">Filtrer</button>
+        <button class="btn-sm" onclick="exportAuditCSV()" style="font-size:12px">Export CSV</button>
+      </div>
+      <table class="tbl"><thead><tr><th>Date/Heure</th><th>Utilisateur</th><th>Action</th><th>Entité</th><th>ID</th><th>Détails</th><th>Snapshots</th></tr></thead><tbody>
       ${logs.map(l=>`<tr>
         <td class="mono">${l.timestamp||'—'}</td>
         <td>${l.username||'<span style="color:var(--text-muted)">système</span>'}</td>
@@ -1775,14 +2082,30 @@ async function renderAudit(page) {
         <td>${l.entity_type||'—'}</td>
         <td class="mono" style="max-width:120px;overflow:hidden;text-overflow:ellipsis">${l.entity_id?.substring(0,12)||'—'}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--text-muted)">${l.details||''}</td>
+        <td>${l.before_snapshot||l.after_snapshot?`<button class="btn-sm" onclick="showAuditSnapshot(${l.id},'${l.action}')">Voir</button>`:'—'}</td>
       </tr>`).join('')}
       </tbody></table>
       <div style="display:flex;justify-content:center;gap:8px;margin-top:var(--space-m)">
         ${auditPage>0?`<button class="btn-sm" onclick="renderAudit(${auditPage-1})">← Précédent</button>`:''}
-        <span style="padding:8px 12px;font-size:12px;color:var(--text-muted)">Page ${auditPage+1}/${pages||1}</span>
+        <span style="padding:8px 12px;font-size:12px;color:var(--text-muted)">Page ${auditPage+1}/${pages||1} (${total} entrées)</span>
         ${auditPage<pages-1?`<button class="btn-sm" onclick="renderAudit(${auditPage+1})">Suivant →</button>`:''}
       </div>`;
   } catch(e){ document.getElementById('auditPanel').innerHTML=`<p style="color:var(--accent)">${e}</p>`; }
+}
+
+function showAuditSnapshot(entryId, action) {
+  openModal(`<h3>Snapshots: ${action}</h3><p>Snapshot avant/après non disponible dans cette version</p><div class="modal-actions"><button class="btn-sm" onclick="closeModal()">Fermer</button></div>`);
+}
+
+async function exportAuditCSV() {
+  try {
+    const csv = await invoke('cmd_export_audit_csv',{token:session.token, filter:{limit:10000}});
+    const blob = new Blob([csv], {type:'text/csv'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'audit-'+new Date().toISOString().substring(0,10)+'.csv';
+    a.click();
+  } catch(e){alert('Erreur: '+e)}
 }
 
 // ═══════════════════ MODAL ═══════════════════

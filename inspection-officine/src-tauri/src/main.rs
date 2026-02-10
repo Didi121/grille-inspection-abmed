@@ -30,8 +30,8 @@ pub struct GridSummary {
 // ════════════════════ GRILLES ════════════════════
 
 #[tauri::command]
-fn list_grids() -> Vec<GridSummary> {
-    grids::all().iter().map(|g| GridSummary {
+fn list_grids(database: State<Database>) -> Vec<GridSummary> {
+    grids_db::load_grids_from_db(&database).iter().map(|g| GridSummary {
         id: g.id.clone(), name: g.name.clone(), code: g.code.clone(),
         description: g.description.clone(), icon: g.icon.clone(), color: g.color.clone(),
         criteria_count: g.sections.iter().map(|s| s.items.len()).sum(),
@@ -40,11 +40,14 @@ fn list_grids() -> Vec<GridSummary> {
 }
 
 #[tauri::command]
-fn get_grid(grid_id: String) -> Option<GridInfo> { grids::find(&grid_id) }
+fn get_grid(database: State<Database>, grid_id: String) -> Option<GridInfo> {
+    grids_db::find_grid_by_id(&database, &grid_id, None)
+}
 
 #[tauri::command]
-fn get_sections(grid_id: String) -> Vec<Section> {
-    grids::find(&grid_id).map(|g| g.sections).unwrap_or_default()
+fn get_sections(database: State<Database>, grid_id: String) -> Vec<Section> {
+    grids_db::find_grid_by_id(&database, &grid_id, None)
+        .map(|g| g.sections).unwrap_or_default()
 }
 
 // ════════════════════ AUTH ════════════════════

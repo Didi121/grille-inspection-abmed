@@ -290,3 +290,259 @@ pub fn get_inspection(db: &Database, inspection_id: &str) -> Result<SavedInspect
     insp.progress = get_progress(&conn, &insp.id);
     Ok(insp)
 }
+
+// ═══════════════════ TESTS UNITAIRES ═══════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Database;
+    use rusqlite::Connection;
+    use std::sync::Mutex;
+
+    fn create_test_db() -> Database {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON;").ok();
+        conn.execute_batch("
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE,
+                full_name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'inspector',
+                password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+                must_change_password INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+            CREATE TABLE inspections (
+                id TEXT PRIMARY KEY, grid_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'draft'
+                    CHECK(status IN ('draft','in_progress','completed','validated','archived')),
+                date_inspection TEXT, establishment TEXT, inspection_type TEXT,
+                inspectors TEXT, created_by TEXT REFERENCES users(id),
+                validated_by TEXT REFERENCES users(id), validated_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+            CREATE TABLE responses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                inspection_id TEXT NOT NULL REFERENCES inspections(id) ON DELETE CASCADE,
+                criterion_id INTEGER NOT NULL, conforme INTEGER,
+                observation TEXT DEFAULT '',
+                updated_by TEXT REFERENCES users(id),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                UNIQUE(inspection_id, criterion_id)
+            );
+        ").unwrap();
+
+        // Créer un utilisateur de test
+        conn.execute(
+            "INSERT INTO users (id, username, full_name, role, password_hash) VALUES ('u1','tester','Test User','inspector','hash')",
+            [],
+        ).unwrap();
+
+        Database { conn: Mutex::new(conn) }
+    }
+
+    fn insert_inspection(db: &Database, id: &str, status: &str) {
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO inspections (id, grid_id, status, created_by) VALUES (?1, 'grid1', ?2, 'u1')",
+            params![id, status],
+        ).unwrap();
+    }
+
+    // ── Tests de création ──
+
+    #[test]
+    fn test_create_inspection() {
+        let db = create_test_db();
+        let req = CreateInspectionRequest {
+            grid_id: "grid1".into(),
+            date_inspection: "2026-03-10".into(),
+            establishment: "Pharmacie Test".into(),
+            inspection_type: "routine".into(),
+            inspectors: vec!["Dr. A".into(), "Dr. B".into()],
+        };
+        let id = create_inspection(&db, &req, "u1");
+        assert!(id.is_ok());
+    }
+
+    // ── Tests de transitions de statut ──
+
+    #[test]
+    fn test_status_draft_to_in_progress() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        assert!(set_status(&db, "i1", "in_progress", None).is_ok());
+    }
+
+    #[test]
+    fn test_status_draft_to_archived() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        assert!(set_status(&db, "i1", "archived", None).is_ok());
+    }
+
+    #[test]
+    fn test_status_in_progress_to_completed() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "in_progress");
+        assert!(set_status(&db, "i1", "completed", None).is_ok());
+    }
+
+    #[test]
+    fn test_status_in_progress_to_draft() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "in_progress");
+        assert!(set_status(&db, "i1", "draft", None).is_ok());
+    }
+
+    #[test]
+    fn test_status_completed_to_validated() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "completed");
+        assert!(set_status(&db, "i1", "validated", Some("u1")).is_ok());
+    }
+
+    #[test]
+    fn test_status_completed_to_in_progress() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "completed");
+        assert!(set_status(&db, "i1", "in_progress", None).is_ok());
+    }
+
+    #[test]
+    fn test_status_validated_to_archived() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "validated");
+        assert!(set_status(&db, "i1", "archived", None).is_ok());
+    }
+
+    // ── Transitions invalides ──
+
+    #[test]
+    fn test_status_draft_to_completed_invalid() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        let err = set_status(&db, "i1", "completed", None);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("invalide"));
+    }
+
+    #[test]
+    fn test_status_draft_to_validated_invalid() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        assert!(set_status(&db, "i1", "validated", None).is_err());
+    }
+
+    #[test]
+    fn test_status_archived_to_anything_invalid() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "archived");
+        assert!(set_status(&db, "i1", "draft", None).is_err());
+        assert!(set_status(&db, "i1", "in_progress", None).is_err());
+        assert!(set_status(&db, "i1", "completed", None).is_err());
+    }
+
+    #[test]
+    fn test_status_validated_to_draft_invalid() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "validated");
+        assert!(set_status(&db, "i1", "draft", None).is_err());
+    }
+
+    // ── Tests réponses ──
+
+    #[test]
+    fn test_save_and_get_response() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        assert!(save_response(&db, "i1", 1, Some(true), "RAS", "u1").is_ok());
+        assert!(save_response(&db, "i1", 2, Some(false), "NC observé", "u1").is_ok());
+        let resp = get_responses(&db, "i1").unwrap();
+        assert_eq!(resp.len(), 2);
+    }
+
+    #[test]
+    fn test_save_response_upsert() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        save_response(&db, "i1", 1, Some(true), "OK", "u1").unwrap();
+        save_response(&db, "i1", 1, Some(false), "Corrigé", "u1").unwrap();
+        let resp = get_responses(&db, "i1").unwrap();
+        assert_eq!(resp.len(), 1);
+        assert_eq!(resp[0].conforme, Some(false));
+        assert_eq!(resp[0].observation, "Corrigé");
+    }
+
+    #[test]
+    fn test_save_response_changes_status_to_in_progress() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        save_response(&db, "i1", 1, Some(true), "", "u1").unwrap();
+        let conn = db.conn.lock().unwrap();
+        let status: String = conn.query_row(
+            "SELECT status FROM inspections WHERE id = 'i1'", [], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(status, "in_progress");
+    }
+
+    // ── Tests suppression ──
+
+    #[test]
+    fn test_delete_inspection() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        assert!(delete_inspection(&db, "i1").is_ok());
+        let conn = db.conn.lock().unwrap();
+        let count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM inspections WHERE id = 'i1'", [], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    // ── Tests listing ──
+
+    #[test]
+    fn test_list_inspections() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        insert_inspection(&db, "i2", "in_progress");
+        let all = list_inspections(&db, None, None).unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_list_inspections_filter_status() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        insert_inspection(&db, "i2", "in_progress");
+        let drafts = list_inspections(&db, None, Some("draft")).unwrap();
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].status, "draft");
+    }
+
+    // ── Test progression ──
+
+    #[test]
+    fn test_progress_calculation() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        save_response(&db, "i1", 1, Some(true), "", "u1").unwrap();
+        save_response(&db, "i1", 2, Some(false), "NC", "u1").unwrap();
+        save_response(&db, "i1", 3, None, "", "u1").unwrap();
+
+        let conn = db.conn.lock().unwrap();
+        let progress = get_progress(&conn, "i1");
+        assert_eq!(progress.total, 3);
+        assert_eq!(progress.answered, 2);
+        assert_eq!(progress.conforme, 1);
+        assert_eq!(progress.non_conforme, 1);
+    }
+
+    #[test]
+    fn test_nonexistent_inspection_status() {
+        let db = create_test_db();
+        assert!(set_status(&db, "nonexistent", "in_progress", None).is_err());
+    }
+}

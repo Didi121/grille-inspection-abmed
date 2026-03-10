@@ -207,3 +207,199 @@ pub fn delete_user(db: &Database, user_id: &str) -> Result<(), String> {
         params![user_id]).map_err(|e| e.to_string())?;
     Ok(())
 }
+
+// ═══════════════════ TESTS UNITAIRES ═══════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Tests de validation ──
+
+    #[test]
+    fn test_validate_input_ok() {
+        assert!(validate_input("admin", "Username", 3, 50).is_ok());
+        assert_eq!(validate_input("  test  ", "Field", 2, 50).unwrap(), "test");
+    }
+
+    #[test]
+    fn test_validate_input_too_short() {
+        assert!(validate_input("ab", "Username", 3, 50).is_err());
+        assert!(validate_input("", "Field", 1, 50).is_err());
+    }
+
+    #[test]
+    fn test_validate_input_too_long() {
+        let long = "a".repeat(51);
+        assert!(validate_input(&long, "Username", 3, 50).is_err());
+    }
+
+    #[test]
+    fn test_validate_password_ok() {
+        assert!(validate_password("secure1pass").is_ok());
+        assert!(validate_password("Abcd1234").is_ok());
+        assert!(validate_password("12345abc").is_ok());
+    }
+
+    #[test]
+    fn test_validate_password_too_short() {
+        assert!(validate_password("abc12").is_err());
+        assert!(validate_password("1234567").is_err());
+    }
+
+    #[test]
+    fn test_validate_password_no_digits() {
+        assert!(validate_password("abcdefgh").is_err());
+    }
+
+    #[test]
+    fn test_validate_password_no_letters() {
+        assert!(validate_password("12345678").is_err());
+    }
+
+    #[test]
+    fn test_validate_password_too_long() {
+        let long = "a1".repeat(65);
+        assert!(validate_password(&long).is_err());
+    }
+
+    // ── Tests avec base de données en mémoire ──
+
+    fn create_test_db() -> Database {
+        use rusqlite::Connection;
+        use std::sync::Mutex;
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON;").ok();
+        conn.execute_batch("
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE,
+                full_name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'inspector',
+                password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+                must_change_password INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+            CREATE TABLE sessions (
+                token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                expires_at TEXT NOT NULL
+            );
+        ").unwrap();
+
+        // Créer un admin de test
+        let hash = bcrypt::hash("Test1234", 4).unwrap();
+        conn.execute(
+            "INSERT INTO users (id, username, full_name, role, password_hash, must_change_password) VALUES ('u1','admin','Admin','admin',?1,1)",
+            params![hash],
+        ).unwrap();
+
+        Database { conn: Mutex::new(conn) }
+    }
+
+    #[test]
+    fn test_login_success() {
+        let db = create_test_db();
+        let result = login(&db, "admin", "Test1234");
+        assert!(result.is_ok());
+        let session = result.unwrap();
+        assert_eq!(session.user.username, "admin");
+        assert!(session.user.must_change_password);
+    }
+
+    #[test]
+    fn test_login_wrong_password() {
+        let db = create_test_db();
+        assert!(login(&db, "admin", "wrongpass").is_err());
+    }
+
+    #[test]
+    fn test_login_unknown_user() {
+        let db = create_test_db();
+        assert!(login(&db, "unknown", "Test1234").is_err());
+    }
+
+    #[test]
+    fn test_validate_session() {
+        let db = create_test_db();
+        let session = login(&db, "admin", "Test1234").unwrap();
+        let user = validate_session(&db, &session.token);
+        assert!(user.is_ok());
+        assert_eq!(user.unwrap().username, "admin");
+    }
+
+    #[test]
+    fn test_validate_session_invalid_token() {
+        let db = create_test_db();
+        assert!(validate_session(&db, "invalid-token").is_err());
+    }
+
+    #[test]
+    fn test_logout() {
+        let db = create_test_db();
+        let session = login(&db, "admin", "Test1234").unwrap();
+        assert!(logout(&db, &session.token).is_ok());
+        assert!(validate_session(&db, &session.token).is_err());
+    }
+
+    #[test]
+    fn test_create_user() {
+        let db = create_test_db();
+        let req = CreateUserRequest {
+            username: "inspector1".to_string(),
+            full_name: "Dr. Test".to_string(),
+            role: "inspector".to_string(),
+            password: "Secure1pass".to_string(),
+        };
+        let user = create_user(&db, &req);
+        assert!(user.is_ok());
+        let u = user.unwrap();
+        assert_eq!(u.username, "inspector1");
+        assert!(!u.must_change_password);
+    }
+
+    #[test]
+    fn test_create_duplicate_user() {
+        let db = create_test_db();
+        let req = CreateUserRequest {
+            username: "admin".to_string(),
+            full_name: "Duplicate".to_string(),
+            role: "inspector".to_string(),
+            password: "Secure1pass".to_string(),
+        };
+        assert!(create_user(&db, &req).is_err());
+    }
+
+    #[test]
+    fn test_change_password_and_login() {
+        let db = create_test_db();
+        assert!(change_password(&db, "u1", "NewPass123").is_ok());
+        assert!(login(&db, "admin", "Test1234").is_err());
+        assert!(login(&db, "admin", "NewPass123").is_ok());
+    }
+
+    #[test]
+    fn test_clear_must_change_password() {
+        let db = create_test_db();
+        let session = login(&db, "admin", "Test1234").unwrap();
+        assert!(session.user.must_change_password);
+        assert!(clear_must_change_password(&db, "u1").is_ok());
+        let user = validate_session(&db, &session.token).unwrap();
+        assert!(!user.must_change_password);
+    }
+
+    #[test]
+    fn test_deactivate_user() {
+        let db = create_test_db();
+        assert!(delete_user(&db, "u1").is_ok());
+        assert!(login(&db, "admin", "Test1234").is_err()); // Compte désactivé
+    }
+
+    #[test]
+    fn test_list_users() {
+        let db = create_test_db();
+        let users = list_users(&db).unwrap();
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0].username, "admin");
+    }
+}

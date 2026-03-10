@@ -1499,7 +1499,7 @@ small {
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-brand" onclick="goToDashboard()">
-      <div class="topbar-logo" id="tLogo">ABM</div>
+      <div class="topbar-logo" id="tLogo">IP</div>
       <div>
         <div class="topbar-title" id="tTitle">Inspections Pharma</div>
         <div class="topbar-sub" id="tSub">Connexion</div>
@@ -1644,21 +1644,35 @@ const isTauri = !!(window.__TAURI_INTERNALS__);
 // ═══════════════════ INVOKE / FALLBACK DB ═══════════════════
 async function invoke(cmd, args={}) {
   if (isTauri) return await window.__TAURI_INTERNALS__.invoke(cmd, args);
-  return fallback(cmd, args);
+  return await fallback(cmd, args);
 }
 
 const DB = { users: [], inspections: [], responses: {}, audit: [], sessions: {}, grids: [], gridVersions: [] };
-function saveDB() { try { localStorage.setItem('abmed_db_v2', JSON.stringify({users:DB.users,inspections:DB.inspections,responses:DB.responses,audit:DB.audit,grids:DB.grids,gridVersions:DB.gridVersions})); } catch(e){} }
-function loadDB() { try { const d=JSON.parse(localStorage.getItem('abmed_db_v2')||'null'); if(d){ DB.users=d.users||[]; DB.inspections=d.inspections||[]; DB.responses=d.responses||{}; DB.audit=d.audit||[]; DB.grids=d.grids||[]; DB.gridVersions=d.gridVersions||[]; }} catch(e){} }
-function initFallbackDB() {
+function saveDB() { try { const d={users:DB.users.map(u=>({...u,password:undefined,password_hash:u.password_hash})),inspections:DB.inspections,responses:DB.responses,audit:DB.audit,grids:DB.grids,gridVersions:DB.gridVersions}; localStorage.setItem('ipharma_db', JSON.stringify(d)); } catch(e){} }
+function loadDB() { try { const d=JSON.parse(localStorage.getItem('ipharma_db')||localStorage.getItem('abmed_db_v2')||'null'); if(d){ DB.users=d.users||[]; DB.inspections=d.inspections||[]; DB.responses=d.responses||{}; DB.audit=d.audit||[]; DB.grids=d.grids||[]; DB.gridVersions=d.gridVersions||[]; }} catch(e){} }
+// Hachage SHA-256 pour le mode fallback (pas bcrypt mais mieux que du clair)
+async function hashPwd(pwd) { const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd+'_ipharma_salt_2026')); return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+async function verifyPwd(pwd, hash) { return (await hashPwd(pwd)) === hash; }
+async function initFallbackDB() {
   loadDB();
   if (!DB.users.length) {
     DB.users.push({ id:crypto.randomUUID(), username:'admin', full_name:'Administrateur', role:'admin', active:true,
-      password:'admin123', created_at: now(), updated_at: now() });
+      password_hash: await hashPwd('admin123'), created_at: now(), updated_at: now() });
     DB.users.push({ id: crypto.randomUUID(), username:'inspecteur1', full_name:'Dr. Konou',
-      role:'inspector', active:true, password:'pass123', created_at: now(), updated_at: now() });
+      role:'inspector', active:true, password_hash: await hashPwd('pass123'), created_at: now(), updated_at: now() });
     DB.users.push({ id: crypto.randomUUID(), username:'chef1', full_name:'Dr. Tamou',
-      role:'lead_inspector', active:true, password:'pass123', created_at: now(), updated_at: now() });
+      role:'lead_inspector', active:true, password_hash: await hashPwd('pass123'), created_at: now(), updated_at: now() });
+  } else {
+    // Migration : convertir les anciens mots de passe en clair vers password_hash
+    let migrated = false;
+    for (const u of DB.users) {
+      if (u.password && !u.password_hash) {
+        u.password_hash = await hashPwd(u.password);
+        delete u.password;
+        migrated = true;
+      }
+    }
+    if (migrated) addAudit(null, 'system', 'MIGRATE_PASSWORDS', 'security', null, 'Migration mots de passe vers hash SHA-256');
   }
   if (!DB.grids.length) {
     DB.grids = buildAllGridsJS().map(g=>({...g, status:'active', is_current:true, created_at:now()}));
@@ -1666,18 +1680,19 @@ function initFallbackDB() {
   saveDB();
 }
 function now() { return new Date().toISOString().replace('T',' ').substring(0,19); }
+function esc(s) { if(!s) return ''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 function addAudit(userId, username, action, entityType, entityId, details) {
   DB.audit.unshift({ id: DB.audit.length+1, timestamp: now(), user_id: userId, username, action, entity_type: entityType, entity_id: entityId, details });
   saveDB();
 }
 
-function fallback(cmd, a) {
-  initFallbackDB();
+async function fallback(cmd, a) {
+  await initFallbackDB();
   switch(cmd) {
-    case 'list_grids': return DB.grids.filter(g=>g.status==='active').map(g=>({...g, criteria_count:g.sections.reduce((s,sec)=>s+sec.items.length,0), section_count:g.sections.length}));
+    case 'list_grids': { if(!a?.token||!DB.sessions[a.token]) throw 'Non authentifié'; return DB.grids.filter(g=>g.status==='active').map(g=>({...g, criteria_count:g.sections.reduce((s,sec)=>s+sec.items.length,0), section_count:g.sections.length})); }
     case 'cmd_login': {
-      const u = DB.users.find(x=>x.username===a.username&&x.password===a.password&&x.active);
-      if(!u) throw 'Identifiants incorrects';
+      const u = DB.users.find(x=>x.username===a.username&&x.active);
+      if(!u || !(await verifyPwd(a.password, u.password_hash))) throw 'Identifiants incorrects';
       const tok = crypto.randomUUID();
       DB.sessions[tok] = u.id;
       addAudit(u.id, u.username, 'LOGIN', 'session', tok, '');
@@ -1691,7 +1706,7 @@ function fallback(cmd, a) {
     }
     case 'cmd_list_users': return DB.users.map(u=>({id:u.id,username:u.username,full_name:u.full_name,role:u.role,active:u.active,created_at:u.created_at,updated_at:u.updated_at}));
     case 'cmd_create_user': {
-      const nu = {id:crypto.randomUUID(), username:a.req.username, full_name:a.req.full_name, role:a.req.role, password:a.req.password, active:true, created_at:now(), updated_at:now()};
+      const nu = {id:crypto.randomUUID(), username:a.req.username, full_name:a.req.full_name, role:a.req.role, password_hash: await hashPwd(a.req.password), active:true, created_at:now(), updated_at:now()};
       DB.users.push(nu); addAudit(null,null,'CREATE_USER','user',nu.id,nu.username);
       return {id:nu.id,username:nu.username,full_name:nu.full_name,role:nu.role,active:true,created_at:nu.created_at,updated_at:nu.updated_at};
     }
@@ -1700,7 +1715,7 @@ function fallback(cmd, a) {
       if(u){ if(a.req.full_name)u.full_name=a.req.full_name; if(a.req.role)u.role=a.req.role; if(a.req.active!==undefined)u.active=a.req.active; u.updated_at=now(); }
       addAudit(session?.user?.id,session?.user?.username,'UPDATE_USER','user',a.userId,u?.username); saveDB(); return null;
     }
-    case 'cmd_change_password': { const u=DB.users.find(x=>x.id===a.userId); if(u)u.password=a.newPassword; addAudit(session?.user?.id,session?.user?.username,'CHANGE_PASSWORD','user',a.userId,''); saveDB(); return null; }
+    case 'cmd_change_password': { const u=DB.users.find(x=>x.id===a.userId); if(u)u.password_hash=await hashPwd(a.newPassword); addAudit(session?.user?.id,session?.user?.username,'CHANGE_PASSWORD','user',a.userId,''); saveDB(); return null; }
     case 'cmd_delete_user': { const u=DB.users.find(x=>x.id===a.userId); if(u){u.active=false;} addAudit(session?.user?.id,session?.user?.username,'DELETE_USER','user',a.userId,u?.username); saveDB(); return null; }
     case 'cmd_create_inspection': {
       const id=crypto.randomUUID();
@@ -1825,6 +1840,7 @@ function fallback(cmd, a) {
     case 'cmd_export_audit_csv': return 'timestamp,action,user,details\n'+DB.audit.map(l=>l.timestamp+','+l.action+','+(l.username||'')+','+(l.details||'')).join('\n');
     case 'cmd_export_audit_json': return JSON.stringify(DB.audit,null,2);
     case 'get_grid': {
+      if(!a?.token||!DB.sessions[a.token]) throw 'Non authentifié';
       const g=DB.grids.find(x=>x.id===a.gridId&&x.status==='active');
       return g||buildAllGridsJS().find(x=>x.id===a.gridId)||null;
     }
@@ -1856,7 +1872,7 @@ async function afterLogin() {
   document.getElementById('tRight').style.display='flex';
   document.getElementById('tUser').textContent=session.user.full_name;
   document.getElementById('tRole').textContent=roleLabel(session.user.role);
-  gridsData = await invoke('list_grids');
+  gridsData = await invoke('list_grids',{token:session.token});
   buildTopNav();
   showScreen('dash');
   loadDashboard();
@@ -1942,9 +1958,9 @@ async function loadDashboard() {
         const canValidate = (role==='admin'||role==='lead_inspector') && i.status==='completed';
         return `<tr onclick="openInspection('${i.id}')">
           <td class="mono">#${shortId}</td>
-          <td>${i.date_inspection||'—'}</td>
-          <td class="estab-name">${i.establishment||'Sans nom'}</td>
-          <td>${i.inspection_type||'—'}</td>
+          <td>${esc(i.date_inspection)||'—'}</td>
+          <td class="estab-name">${esc(i.establishment)||'Sans nom'}</td>
+          <td>${esc(i.inspection_type)||'—'}</td>
           <td>${g.icon} ${g.name}</td>
           <td>${i.created_by_name||'—'}</td>
           <td><span class="status-badge status-${i.status}">${statusLabel(i.status)}</span></td>
@@ -1988,7 +2004,7 @@ async function openInspection(id) {
   try {
     const insp = await invoke('cmd_get_inspection',{token:session.token, inspectionId:id});
     const savedResps = await invoke('cmd_get_responses',{token:session.token, inspectionId:id});
-    const grid = await invoke('get_grid',{gridId:insp.grid_id});
+    const grid = await invoke('get_grid',{token:session.token,gridId:insp.grid_id});
     if(!grid) { alert('Grille introuvable: '+insp.grid_id); return; }
 
     currentInspectionId = id;
@@ -2008,7 +2024,7 @@ async function openInspection(id) {
 
 // ═══════════════════ GRID SELECTOR ═══════════════════
 async function renderGridSelector() {
-  if(!gridsData.length) gridsData = await invoke('list_grids');
+  if(!gridsData.length) gridsData = await invoke('list_grids',{token:session.token});
   document.getElementById('gridCards').innerHTML = gridsData.map(g=>`
     <div class="grid-card" onclick="selectGrid('${g.id}')">
       <span class="icon">${g.icon}</span>
@@ -2022,7 +2038,7 @@ async function renderGridSelector() {
 }
 
 async function selectGrid(gridId) {
-  const grid = await invoke('get_grid',{gridId});
+  const grid = await invoke('get_grid',{token:session.token,gridId});
   activeGrid = grid; sections = grid.sections;
   allCriteria = []; sections.forEach(s=>s.items.forEach(item=>allCriteria.push({...item, sectionTitle:s.title, sectionId:s.id})));
   responses = {}; currentIndex = 0;
@@ -2369,7 +2385,7 @@ async function doCreateGrid() {
 
 async function openGridEditor(gridId) {
   try {
-    const grid = await invoke('get_grid',{gridId});
+    const grid = await invoke('get_grid',{token:session.token,gridId});
     if(!grid) throw 'Grille introuvable';
     const p = document.getElementById('gridsPanel');
     let html = `

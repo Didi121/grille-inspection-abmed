@@ -30,24 +30,27 @@ pub struct GridSummary {
 // ════════════════════ GRILLES ════════════════════
 
 #[tauri::command]
-fn list_grids(database: State<Database>) -> Vec<GridSummary> {
-    grids_db::load_grids_from_db(&database).iter().map(|g| GridSummary {
+fn list_grids(database: State<Database>, token: String) -> Result<Vec<GridSummary>, String> {
+    let _user = users::validate_session(&database, &token)?;
+    Ok(grids_db::load_grids_from_db(&database).iter().map(|g| GridSummary {
         id: g.id.clone(), name: g.name.clone(), code: g.code.clone(),
         description: g.description.clone(), icon: g.icon.clone(), color: g.color.clone(),
         criteria_count: g.sections.iter().map(|s| s.items.len()).sum(),
         section_count: g.sections.len(),
-    }).collect()
+    }).collect())
 }
 
 #[tauri::command]
-fn get_grid(database: State<Database>, grid_id: String) -> Option<GridInfo> {
-    grids_db::find_grid_by_id(&database, &grid_id, None)
+fn get_grid(database: State<Database>, token: String, grid_id: String) -> Result<Option<GridInfo>, String> {
+    let _user = users::validate_session(&database, &token)?;
+    Ok(grids_db::find_grid_by_id(&database, &grid_id, None))
 }
 
 #[tauri::command]
-fn get_sections(database: State<Database>, grid_id: String) -> Vec<Section> {
-    grids_db::find_grid_by_id(&database, &grid_id, None)
-        .map(|g| g.sections).unwrap_or_default()
+fn get_sections(database: State<Database>, token: String, grid_id: String) -> Result<Vec<Section>, String> {
+    let _user = users::validate_session(&database, &token)?;
+    Ok(grids_db::find_grid_by_id(&database, &grid_id, None)
+        .map(|g| g.sections).unwrap_or_default())
 }
 
 // ════════════════════ AUTH ════════════════════

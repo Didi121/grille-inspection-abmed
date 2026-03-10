@@ -1914,6 +1914,7 @@ async function doLogin() {
   if (!u) { document.getElementById('loginErr').textContent = 'Saisissez un nom d\'utilisateur'; return; }
   try {
     session = await invoke('cmd_login',{username:u,password:p});
+    sessionStorage.setItem('ipharma_session', JSON.stringify(session));
     document.getElementById('loginErr').textContent = '';
     afterLogin();
   } catch(e) {
@@ -1923,6 +1924,7 @@ async function doLogin() {
 async function doLogout() {
   if(session) try { await invoke('cmd_logout',{token:session.token}); } catch(_){}
   session = null; currentInspectionId=null;
+  sessionStorage.removeItem('ipharma_session');
   document.getElementById('tRight').style.display='none';
   document.getElementById('tNav').style.display='none';
   showScreen('login');
@@ -2050,12 +2052,23 @@ async function deleteInsp(id) {
 }
 
 // Filtres live
-document.addEventListener('DOMContentLoaded',()=>{
-  document.getElementById('loginUser')?.focus();
+document.addEventListener('DOMContentLoaded',async ()=>{
+  // Attacher les filtres du dashboard
   ['dSearch','dTypeFilter','dStatusFilter'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.addEventListener(el.tagName==='SELECT'?'change':'input',()=>{ if(session) loadDashboard(); });
   });
+  // Restaurer la session si elle existe
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('ipharma_session'));
+    if(saved && saved.token) {
+      const user = await invoke('cmd_validate_session',{token:saved.token});
+      session = { token: saved.token, user };
+      afterLogin();
+      return;
+    }
+  } catch(_) { sessionStorage.removeItem('ipharma_session'); }
+  document.getElementById('loginUser')?.focus();
 });
 
 // ═══════════════════ OPEN / RESUME INSPECTION ═══════════════════

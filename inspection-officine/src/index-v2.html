@@ -1871,12 +1871,12 @@ function fallback(cmd, a) {
       const sec=g.sections.find(s=>s.id===a.req.section_id||s.id===a.req.sectionId);
       if(!sec) throw 'Section introuvable';
       const maxCid=g.sections.reduce((m,s)=>s.items.reduce((m2,c)=>Math.max(m2,c.id),m),0);
-      sec.items.push({id:maxCid+1,reference:a.req.reference,description:a.req.description,pre_opening:a.req.pre_opening||false});
+      sec.items.push({id:maxCid+1,reference:a.req.reference,description:a.req.description,pre_opening:a.req.pre_opening||false,severity:a.req.severity||'majeur'});
       addAudit(null,null,'ADD_CRITERION','grid',g.id,a.req.reference); saveDB(); return maxCid+1;
     }
     case 'cmd_update_criterion': {
       const g=DB.grids.find(x=>x.id===a.gridId);
-      if(g){ for(const s of g.sections){ const c=s.items.find(x=>x.id===a.criterionId); if(c){ if(a.reference)c.reference=a.reference; if(a.description)c.description=a.description; if(a.preOpening!==undefined)c.pre_opening=a.preOpening; break; }}}
+      if(g){ for(const s of g.sections){ const c=s.items.find(x=>x.id===a.criterionId); if(c){ if(a.reference)c.reference=a.reference; if(a.description)c.description=a.description; if(a.preOpening!==undefined)c.pre_opening=a.preOpening; if(a.severity)c.severity=a.severity; break; }}}
       saveDB(); return null;
     }
     case 'cmd_delete_criterion': {
@@ -2181,7 +2181,7 @@ function renderCriterion() {
   const r=responses[c.id]||{conforme:null,observation:''};
   area.innerHTML=`
     <div class="c-header">
-      <span class="c-badge">${c.pre_opening?'► Pré-ouverture':'Critère '+c.id}</span>
+      <span class="c-badge">Critère ${c.id}</span>
       <span class="c-section">${c.sectionTitle}</span>
     </div>
     <div class="criterion-card">
@@ -2192,6 +2192,15 @@ function renderCriterion() {
         <button class="resp-btn non ${r.conforme===false?'sel':''}" onclick="setResp(${c.id},false)">✕ Non conforme</button>
         <button class="resp-btn na ${r.conforme==='na'?'sel':''}" onclick="setResp(${c.id},'na')" style="max-width:80px">N/A</button>
       </div>
+      ${r.conforme===false?`<div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;color:var(--text-muted)">Sévérité de l'écart :</span>
+        <select onchange="setSeverity(${c.id},this.value)" style="padding:4px 8px;font-family:var(--font);font-size:12px;border:1px solid var(--border)">
+          <option value="critique" ${(r.severity||c.severity||'majeur')==='critique'?'selected':''}>Critique</option>
+          <option value="majeur" ${(r.severity||c.severity||'majeur')==='majeur'?'selected':''}>Majeur</option>
+          <option value="mineur" ${(r.severity||c.severity||'majeur')==='mineur'?'selected':''}>Mineur</option>
+          <option value="info" ${(r.severity||c.severity||'majeur')==='info'?'selected':''}>Observation</option>
+        </select>
+      </div>`:''}
       <div class="obs-lbl">Observations</div>
       <textarea class="obs-input" placeholder="Observation…" oninput="updateObs(${c.id},this.value)">${r.observation||''}</textarea>
     </div>
@@ -2220,11 +2229,21 @@ function skipSection(section) {
   renderSidebar(); renderCriterion(); updateProgress();
 }
 
+function setSeverity(id, sev) {
+  if(!responses[id]) responses[id]={conforme:null,observation:''};
+  responses[id].severity = sev;
+}
+
 async function setResp(id,val) {
   if(!responses[id]) responses[id]={conforme:null,observation:''};
   // Toggle: reclique = désélectionne, null = reset explicite, 'na' = non applicable
   const newVal = (val === null) ? null : (responses[id].conforme === val) ? null : val;
   responses[id].conforme = newVal;
+  // Initialiser la sévérité depuis la grille si pas encore définie
+  if(newVal===false && !responses[id].severity) {
+    const crit = allCriteria.find(c=>c.id===id);
+    responses[id].severity = crit?.severity || (crit?.pre_opening ? 'critique' : 'majeur');
+  }
   // Pour le backend: 'na' est sauvegardé comme null avec observation [N/A]
   const backendVal = (newVal === 'na') ? null : newVal;
   const obs = responses[id].observation || (newVal === 'na' ? '[N/A]' : '');
@@ -2268,10 +2287,15 @@ async function renderReport() {
   const rate=ans>0?((conf/ans)*100).toFixed(1):0;
   const ecarts=allCriteria.filter(c=>responses[c.id]?.conforme===false).map(c=>({...c,observation:responses[c.id]?.observation||''}));
 
-  // Classifier les écarts par sévérité (basé sur pre_opening = critique, sinon répartition)
-  const critiques = ecarts.filter(e=>e.pre_opening);
-  const majeurs = ecarts.filter(e=>!e.pre_opening && e.reference);
-  const mineurs = ecarts.filter(e=>!e.pre_opening && !e.reference);
+  // Classifier les écarts par sévérité (depuis la réponse, puis la grille, puis défaut)
+  ecarts.forEach(e => {
+    const r = responses[e.id];
+    e.effectiveSeverity = r?.severity || e.severity || (e.pre_opening ? 'critique' : 'majeur');
+  });
+  const critiques = ecarts.filter(e=>e.effectiveSeverity==='critique');
+  const majeurs = ecarts.filter(e=>e.effectiveSeverity==='majeur');
+  const mineurs = ecarts.filter(e=>e.effectiveSeverity==='mineur');
+  const observations = ecarts.filter(e=>e.effectiveSeverity==='info');
   const totalEcarts = ecarts.length;
 
   const isLeadOrAdmin = ['admin','lead_inspector'].includes(session?.user?.role);
@@ -2320,6 +2344,7 @@ async function renderReport() {
       <div class="rpt-stat-box"><span class="rpt-stat-num" style="color:var(--accent)">${critiques.length}</span><span class="rpt-stat-lbl">Critiques</span></div>
       <div class="rpt-stat-box"><span class="rpt-stat-num" style="color:#d97706">${majeurs.length}</span><span class="rpt-stat-lbl">Majeurs</span></div>
       <div class="rpt-stat-box"><span class="rpt-stat-num" style="color:#0284c7">${mineurs.length}</span><span class="rpt-stat-lbl">Mineurs</span></div>
+      ${observations.length?`<div class="rpt-stat-box"><span class="rpt-stat-num" style="color:#6b7280">${observations.length}</span><span class="rpt-stat-lbl">Observations</span></div>`:''}
       <div class="rpt-stat-box" style="background:var(--surface)"><span class="rpt-stat-num">${totalEcarts}</span><span class="rpt-stat-lbl">Total</span></div>
     </div>
     <table class="rpt-data-table">
@@ -2332,12 +2357,16 @@ async function renderReport() {
     </table>
     ${ecarts.length?`
       <div style="margin-top:12px;font-size:11px;font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.03em">Détail des écarts (${ecarts.length})</div>
-      ${ecarts.map(e=>`<div class="rpt-ecart-item">
-        <div class="sec">${e.sectionTitle}${e.pre_opening?' — <span style="color:var(--accent)">CRITIQUE</span>':''}</div>
+      ${ecarts.map(e=>{
+        const sevColors={critique:'#dc2626',majeur:'#d97706',mineur:'#2563eb',info:'#6b7280'};
+        const sevLabels={critique:'CRITIQUE',majeur:'MAJEUR',mineur:'MINEUR',info:'OBSERVATION'};
+        const sev=e.effectiveSeverity||'majeur';
+        return `<div class="rpt-ecart-item">
+        <div class="sec">${e.sectionTitle} — <span style="color:${sevColors[sev]};font-weight:700">${sevLabels[sev]}</span></div>
         <div class="desc">${e.description}</div>
         ${e.reference?`<div class="ref">${e.reference}</div>`:''}
         ${e.observation?`<div class="obs">"${e.observation}"</div>`:''}
-      </div>`).join('')}
+      </div>`;}).join('')}
     `:''}
 
     <div class="rpt-section-hdr">IV. Suites Administratives Proposées</div>
@@ -2521,7 +2550,7 @@ async function openGridEditor(gridId) {
             <th style="text-align:left;padding:6px 10px;font-size:11px;color:var(--text-muted);font-weight:500">ID</th>
             <th style="text-align:left;padding:6px 10px;font-size:11px;color:var(--text-muted);font-weight:500">Réf.</th>
             <th style="text-align:left;padding:6px 10px;font-size:11px;color:var(--text-muted);font-weight:500">Description</th>
-            <th style="text-align:left;padding:6px 10px;font-size:11px;color:var(--text-muted);font-weight:500">Pré-ouv.</th>
+            <th style="text-align:left;padding:6px 10px;font-size:11px;color:var(--text-muted);font-weight:500">Sévérité</th>
             <th style="text-align:right;padding:6px 10px;font-size:11px;color:var(--text-muted);font-weight:500">Actions</th>
           </tr></thead><tbody>`;
         section.items.forEach(c=>{
@@ -2529,9 +2558,9 @@ async function openGridEditor(gridId) {
             <td style="padding:6px 10px;font-family:var(--mono);font-size:12px;color:var(--text-muted)">${c.id}</td>
             <td style="padding:6px 10px;font-family:var(--mono);font-size:12px">${c.reference||'—'}</td>
             <td style="padding:6px 10px">${c.description}</td>
-            <td style="padding:6px 10px">${c.pre_opening?'✓':''}</td>
+            <td style="padding:6px 10px"><span style="font-size:11px;padding:2px 6px;background:${{'critique':'#fef2f2','majeur':'#fffbeb','mineur':'#eff6ff','info':'#f3f4f6'}[c.severity||'majeur']};color:${{'critique':'#dc2626','majeur':'#d97706','mineur':'#2563eb','info':'#6b7280'}[c.severity||'majeur']}">${(c.severity||'majeur').toUpperCase()}</span></td>
             <td style="padding:6px 10px;text-align:right">
-              <button class="btn-sm" style="font-size:11px" onclick="showEditCriterionModal('${gridId}',${c.id},'${esc(c.reference)}','${esc(c.description)}',${c.pre_opening})">Modifier</button>
+              <button class="btn-sm" style="font-size:11px" onclick="showEditCriterionModal('${gridId}',${c.id},'${esc(c.reference)}','${esc(c.description)}',${c.pre_opening},'${c.severity||''}')">Modifier</button>
               <button class="btn-sm" style="font-size:11px;color:var(--accent)" onclick="doDeleteCriterion('${gridId}',${c.id})">Suppr.</button>
             </td>
           </tr>`;
@@ -2580,26 +2609,38 @@ async function doDeleteSection(gridId,sectionId) {
   try { await invoke('cmd_delete_section',{token:session.token, gridId, sectionId}); openGridEditor(gridId); } catch(e){alert(e)}
 }
 
+function severitySelect(elId, current) {
+  return `<select id="${elId}" style="padding:6px;font-family:var(--font);font-size:13px;border:1px solid var(--border)">
+    <option value="critique" ${current==='critique'?'selected':''}>Critique</option>
+    <option value="majeur" ${current==='majeur'||!current?'selected':''}>Majeur</option>
+    <option value="mineur" ${current==='mineur'?'selected':''}>Mineur</option>
+    <option value="info" ${current==='info'?'selected':''}>Observation / Info</option>
+  </select>`;
+}
 function showAddCriterionModal(gridId,sectionId,sectionTitle) {
   openModal(`<h3>Nouveau critère — ${sectionTitle}</h3>
     <div class="field"><label>Référence</label><input id="acRef" placeholder="BPDisp 1.3"/></div>
     <div class="field"><label>Description</label><textarea id="acDesc" rows="3" placeholder="Description du critère"></textarea></div>
-    <div class="field"><label><input type="checkbox" id="acPre"/> Critère pré-ouverture</label></div>
+    <div class="field"><label>Sévérité par défaut</label>${severitySelect('acSev','majeur')}</div>
     <div class="modal-actions"><button class="btn-sm" onclick="closeModal()">Annuler</button><button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="doAddCriterion('${gridId}',${sectionId})">Ajouter</button></div>`);
 }
 async function doAddCriterion(gridId,sectionId) {
-  try { await invoke('cmd_create_criterion',{token:session.token, req:{grid_id:gridId, section_id:sectionId, reference:document.getElementById('acRef').value, description:document.getElementById('acDesc').value, pre_opening:document.getElementById('acPre').checked}}); closeModal(); openGridEditor(gridId); } catch(e){alert(e)}
+  const sev=document.getElementById('acSev').value;
+  const preOp=sev==='critique';
+  try { await invoke('cmd_create_criterion',{token:session.token, req:{grid_id:gridId, section_id:sectionId, reference:document.getElementById('acRef').value, description:document.getElementById('acDesc').value, pre_opening:preOp, severity:sev}}); closeModal(); openGridEditor(gridId); } catch(e){alert(e)}
 }
 
-function showEditCriterionModal(gridId,criterionId,ref,desc,preOp) {
+function showEditCriterionModal(gridId,criterionId,ref,desc,preOp,sev) {
+  const currentSev = sev || (preOp ? 'critique' : 'majeur');
   openModal(`<h3>Modifier critère #${criterionId}</h3>
     <div class="field"><label>Référence</label><input id="ecRef" value="${ref}"/></div>
     <div class="field"><label>Description</label><textarea id="ecDesc" rows="3">${desc}</textarea></div>
-    <div class="field"><label><input type="checkbox" id="ecPre" ${preOp?'checked':''}/> Critère pré-ouverture</label></div>
+    <div class="field"><label>Sévérité par défaut</label>${severitySelect('ecSev',currentSev)}</div>
     <div class="modal-actions"><button class="btn-sm" onclick="closeModal()">Annuler</button><button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="doEditCriterion('${gridId}',${criterionId})">Enregistrer</button></div>`);
 }
 async function doEditCriterion(gridId,criterionId) {
-  try { await invoke('cmd_update_criterion',{token:session.token, gridId, criterionId, reference:document.getElementById('ecRef').value, description:document.getElementById('ecDesc').value, preOpening:document.getElementById('ecPre').checked}); closeModal(); openGridEditor(gridId); } catch(e){alert(e)}
+  const sev=document.getElementById('ecSev').value;
+  try { await invoke('cmd_update_criterion',{token:session.token, gridId, criterionId, reference:document.getElementById('ecRef').value, description:document.getElementById('ecDesc').value, preOpening:sev==='critique', severity:sev}); closeModal(); openGridEditor(gridId); } catch(e){alert(e)}
 }
 async function doDeleteCriterion(gridId,criterionId) {
   if(!confirm('Supprimer ce critère ?')) return;

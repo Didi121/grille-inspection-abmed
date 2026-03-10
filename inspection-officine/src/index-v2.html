@@ -808,6 +808,44 @@ small {
   color: var(--accent);
 }
 
+.resp-btn.na.sel {
+  border-color: #9ca3af;
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.skip-section-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px;
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 11px;
+  cursor: pointer;
+}
+.skip-section-btn:hover { border-color: var(--text); color: var(--text); }
+
+.btn-report-anytime {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 10px 18px;
+  background: var(--text);
+  color: #fff;
+  border: none;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 50;
+  letter-spacing: 0.02em;
+}
+.btn-report-anytime:hover { background: var(--accent); }
+@media print { .btn-report-anytime { display: none; } }
+
 .obs-lbl {
   font-size: 12px;
   font-weight: 500;
@@ -2114,14 +2152,24 @@ function renderSidebar() {
   let idx=0;
   sections.forEach(s=>{
     const start=idx, total=s.items.length;
-    const ans=s.items.filter(i=>responses[i.id]&&responses[i.id].conforme!==null&&responses[i.id].conforme!==undefined).length;
+    const naItems=s.items.filter(i=>responses[i.id]&&responses[i.id].conforme==='na').length;
+    const ans=s.items.filter(i=>responses[i.id]&&(responses[i.id].conforme===true||responses[i.id].conforme===false)).length;
+    const allNa=naItems===total;
+    const allDone=(ans+naItems)===total;
     const cur=currentIndex>=start&&currentIndex<start+total;
-    const el=document.createElement('div'); el.className='section-item'+(cur?' active':'');
+    const el=document.createElement('div'); el.className='section-item'+(cur?' active':'')+(allNa?' na':'');
+    el.style.opacity=allNa?'0.5':'1';
     el.innerHTML=`<div class="si-num">${s.id}</div>
-      <div class="si-info"><div class="si-name">${s.title}</div><div class="si-prog">${ans}/${total}</div></div>
-      <div class="si-badge ${ans===total?'done':''}">${ans===total?'✓':ans+'/'+total}</div>`;
+      <div class="si-info"><div class="si-name">${s.title}</div><div class="si-prog">${allNa?'N/A':ans+'/'+(total-naItems)}</div></div>
+      <div class="si-badge ${allDone?'done':''}">${allNa?'—':allDone?'✓':ans+'/'+(total-naItems)}</div>`;
     el.onclick=()=>{currentIndex=start;renderCriterion();renderSidebar()};
-    list.appendChild(el); idx+=total;
+    list.appendChild(el);
+    // Bouton "Passer" pour marquer toute la section N/A
+    const skipBtn=document.createElement('button'); skipBtn.className='skip-section-btn';
+    skipBtn.textContent='Passer cette section → N/A';
+    skipBtn.onclick=(e)=>{e.stopPropagation();skipSection(s)};
+    list.appendChild(skipBtn);
+    idx+=total;
   });
 }
 
@@ -2142,6 +2190,7 @@ function renderCriterion() {
       <div class="resp-row">
         <button class="resp-btn oui ${r.conforme===true?'sel':''}" onclick="setResp(${c.id},true)">✓ Conforme</button>
         <button class="resp-btn non ${r.conforme===false?'sel':''}" onclick="setResp(${c.id},false)">✕ Non conforme</button>
+        <button class="resp-btn na ${r.conforme==='na'?'sel':''}" onclick="setResp(${c.id},'na')" style="max-width:80px">N/A</button>
       </div>
       <div class="obs-lbl">Observations</div>
       <textarea class="obs-input" placeholder="Observation…" oninput="updateObs(${c.id},this.value)">${r.observation||''}</textarea>
@@ -2149,20 +2198,38 @@ function renderCriterion() {
     <div class="c-nav">
       <button class="nav-arr" onclick="nav(-1)" ${currentIndex===0?'disabled':''}>← Précédent</button>
       <span class="nav-cnt">${currentIndex+1} / ${allCriteria.length}</span>
-      ${currentIndex<allCriteria.length-1
-        ?`<button class="nav-arr primary" onclick="nav(1)">Suivant →</button>`
-        :`<button class="nav-arr primary" onclick="showScreen('report');renderReport()">Rapport →</button>`}
+      <button class="nav-arr primary" onclick="nav(1)" ${currentIndex>=allCriteria.length-1?'disabled':''}>Suivant →</button>
     </div>`;
+  // Bouton rapport flottant toujours visible
+  if(!document.getElementById('btnReportFloat')){
+    const fb=document.createElement('button'); fb.id='btnReportFloat'; fb.className='btn-report-anytime';
+    fb.textContent='Rapport →'; fb.onclick=()=>{showScreen('report');renderReport()};
+    document.getElementById('s-inspection').appendChild(fb);
+  }
 }
 
 // ═══════════════════ RESPONSES ═══════════════════
+function skipSection(section) {
+  section.items.forEach(item => {
+    if(!responses[item.id]) responses[item.id]={conforme:null,observation:''};
+    responses[item.id].conforme='na';
+    if(currentInspectionId && session) {
+      invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:item.id, conforme:null, observation:'[N/A]'}).catch(()=>{});
+    }
+  });
+  renderSidebar(); renderCriterion(); updateProgress();
+}
+
 async function setResp(id,val) {
   if(!responses[id]) responses[id]={conforme:null,observation:''};
-  // Toggle: reclique = désélectionne, null = reset explicite
+  // Toggle: reclique = désélectionne, null = reset explicite, 'na' = non applicable
   const newVal = (val === null) ? null : (responses[id].conforme === val) ? null : val;
   responses[id].conforme = newVal;
+  // Pour le backend: 'na' est sauvegardé comme null avec observation [N/A]
+  const backendVal = (newVal === 'na') ? null : newVal;
+  const obs = responses[id].observation || (newVal === 'na' ? '[N/A]' : '');
   if(currentInspectionId && session) {
-    try { await invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:id, conforme:newVal, observation:responses[id].observation||''}); }
+    try { await invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:id, conforme:backendVal, observation:obs}); }
     catch(e){ console.error('Save error',e); }
   }
   renderCriterion(); updateProgress(); renderSidebar();
@@ -2181,19 +2248,23 @@ async function updateObs(id,text) {
 function nav(dir){currentIndex=Math.max(0,Math.min(allCriteria.length-1,currentIndex+dir));renderCriterion();renderSidebar()}
 function updateProgress() {
   const total=allCriteria.length;
-  const ans=Object.values(responses).filter(r=>r.conforme!==null&&r.conforme!==undefined).length;
-  const pct=total>0?(ans/total)*100:0;
+  const naCount=Object.values(responses).filter(r=>r.conforme==='na').length;
+  const applicable=total-naCount;
+  const ans=Object.values(responses).filter(r=>r.conforme===true||r.conforme===false).length;
+  const pct=applicable>0?(ans/applicable)*100:0;
   document.getElementById('pFill').style.width=pct+'%';
-  document.getElementById('pCount').textContent=`${ans} / ${total}`;
+  document.getElementById('pCount').textContent=applicable<total?`${ans} / ${applicable} (${naCount} N/A)`:`${ans} / ${total}`;
 }
 
 // ═══════════════════ RAPPORT OFFICIEL ═══════════════════
 async function renderReport() {
   const total=allCriteria.length;
-  const ans=Object.values(responses).filter(r=>r.conforme!==null&&r.conforme!==undefined).length;
+  const naCount=Object.values(responses).filter(r=>r.conforme==='na').length;
+  const applicable=total-naCount;
+  const ans=Object.values(responses).filter(r=>r.conforme===true||r.conforme===false).length;
   const conf=Object.values(responses).filter(r=>r.conforme===true).length;
   const nonC=Object.values(responses).filter(r=>r.conforme===false).length;
-  const notEval=total-ans;
+  const notEval=applicable-ans;
   const rate=ans>0?((conf/ans)*100).toFixed(1):0;
   const ecarts=allCriteria.filter(c=>responses[c.id]?.conforme===false).map(c=>({...c,observation:responses[c.id]?.observation||''}));
 
@@ -2252,7 +2323,9 @@ async function renderReport() {
       <div class="rpt-stat-box" style="background:var(--surface)"><span class="rpt-stat-num">${totalEcarts}</span><span class="rpt-stat-lbl">Total</span></div>
     </div>
     <table class="rpt-data-table">
-      <tr><td class="label">Taux de conformité :</td><td class="value"><strong>${rate}%</strong> (${conf}/${ans} critères évalués)</td></tr>
+      <tr><td class="label">Critères applicables :</td><td class="value">${applicable} / ${total}${naCount>0?' ('+naCount+' N/A)':''}</td></tr>
+      <tr><td class="label">Critères évalués :</td><td class="value">${ans} / ${applicable}${notEval>0?' ('+notEval+' non évalués)':''}</td></tr>
+      <tr><td class="label">Taux de conformité :</td><td class="value"><strong>${rate}%</strong> (${conf} conformes / ${ans} évalués)</td></tr>
       <tr><td class="label">Niveau de Risque de Conformité :</td><td class="value">${d(null)}</td></tr>
       <tr><td class="label">Niveau de Risque Global :</td><td class="value">${d(null)}</td></tr>
       <tr><td class="label">Procès-Verbal :</td><td class="value">${d(meta.proces_verbal)}</td></tr>
@@ -2330,9 +2403,10 @@ document.addEventListener('keydown',e=>{
   if(!document.getElementById('s-inspection').classList.contains('visible'))return;
   if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT')return;
   if(e.key==='ArrowRight'){e.preventDefault();nav(1)} if(e.key==='ArrowLeft'){e.preventDefault();nav(-1)}
-  // O = Conforme (toggle), N = Non conforme (toggle), Espace/Backspace = Désélectionner
+  // O = Conforme (toggle), N = Non conforme (toggle), X = N/A (toggle), Espace/Backspace = Désélectionner
   if(e.key==='o'||e.key==='O'){e.preventDefault();const c=allCriteria[currentIndex];if(c)setResp(c.id,true)}
   if(e.key==='n'||e.key==='N'){e.preventDefault();const c=allCriteria[currentIndex];if(c)setResp(c.id,false)}
+  if(e.key==='x'||e.key==='X'){e.preventDefault();const c=allCriteria[currentIndex];if(c)setResp(c.id,'na')}
   if(e.key===' '||e.key==='Backspace'){e.preventDefault();const c=allCriteria[currentIndex];if(c&&responses[c.id]){responses[c.id].conforme=null;setResp(c.id,null)}}
 });
 

@@ -2214,17 +2214,14 @@ async function renderReport() {
   const fmtDate = s => { if(!s) return '—'; const p=s.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s; };
 
   document.getElementById('rptA4').innerHTML=`
-    <div class="rpt-header-inst">
-      <div class="rpt-republique">République du Bénin</div>
-      <div class="rpt-devise">Fraternité — Justice — Travail</div>
-      <div style="margin-top:8px;font-weight:700;font-size:13px">MINISTÈRE DE LA SANTÉ</div>
-      <div style="font-weight:700;font-size:13px;margin-top:2px">Inspections Pharma</div>
-      <div style="font-size:10px;margin-top:2px">Direction de l'Inspection et de la Réglementation Pharmaceutique</div>
+    <div class="rpt-header-inst" style="text-align:center;margin-bottom:24px">
+      <div style="font-weight:700;font-size:18px;letter-spacing:0.05em">INSPECTIONS PHARMA</div>
+      <div style="font-size:11px;color:#666;margin-top:4px">Outil d'audit et d'inspection</div>
     </div>
 
     <div class="rpt-title-box">
-      <h2>RAPPORT DE ${(insp?.inspection_type||'').toUpperCase()||'SUIVI'} D'INSPECTION</h2>
-      <div style="font-size:12px;font-weight:600;margin-top:4px">Dossier ID : #${shortId}</div>
+      <h2>RAPPORT ${(insp?.inspection_type||'').toUpperCase()||"D'AUDIT"}</h2>
+      <div style="font-size:12px;font-weight:600;margin-top:4px">Réf. : #${shortId}</div>
     </div>
 
     <div class="rpt-section-hdr">I. Identification de l'établissement</div>

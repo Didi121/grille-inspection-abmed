@@ -1765,11 +1765,11 @@ function initFallbackDB() {
   loadDB();
   if (!DB.users.length) {
     DB.users.push({ id:crypto.randomUUID(), username:'admin', full_name:'Administrateur', role:'admin', active:true,
-      password_hash: hashPwd('admin123'), created_at: now(), updated_at: now() });
+      password_hash: hashPwd('admin123'), must_change_password:true, created_at: now(), updated_at: now() });
     DB.users.push({ id: crypto.randomUUID(), username:'inspecteur1', full_name:'Dr. Konou',
-      role:'inspector', active:true, password_hash: hashPwd('pass123'), created_at: now(), updated_at: now() });
+      role:'inspector', active:true, password_hash: hashPwd('pass123'), must_change_password:true, created_at: now(), updated_at: now() });
     DB.users.push({ id: crypto.randomUUID(), username:'chef1', full_name:'Dr. Tamou',
-      role:'lead_inspector', active:true, password_hash: hashPwd('pass123'), created_at: now(), updated_at: now() });
+      role:'lead_inspector', active:true, password_hash: hashPwd('pass123'), must_change_password:true, created_at: now(), updated_at: now() });
   } else {
     // Migration/réparation : s'assurer que chaque user a un password_hash valide
     const defaultPwds = { admin:'admin123', inspecteur1:'pass123', chef1:'pass123' };
@@ -1796,6 +1796,27 @@ function initFallbackDB() {
 }
 function now() { return new Date().toISOString().replace('T',' ').substring(0,19); }
 function esc(s) { if(!s) return ''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+// ── Validation des entrées ──
+function validateInput(val, name, minLen, maxLen) {
+  const v = (val||'').trim();
+  if(v.length < minLen) throw `${name} doit contenir au moins ${minLen} caractères`;
+  if(maxLen && v.length > maxLen) throw `${name} ne peut pas dépasser ${maxLen} caractères`;
+  return v;
+}
+function validatePassword(pwd) {
+  if(!pwd || pwd.length < 8) throw 'Le mot de passe doit contenir au moins 8 caractères';
+  if(!/[A-Za-z]/.test(pwd) || !/[0-9]/.test(pwd)) throw 'Le mot de passe doit contenir lettres et chiffres';
+  return pwd;
+}
+// ── Machine à états des statuts d'inspection ──
+const VALID_TRANSITIONS = {
+  draft: ['in_progress', 'archived'],
+  in_progress: ['completed', 'draft'],
+  completed: ['validated', 'in_progress'],
+  validated: ['archived'],
+  archived: []
+};
+function canTransition(from, to) { return (VALID_TRANSITIONS[from]||[]).includes(to); }
 function addAudit(userId, username, action, entityType, entityId, details) {
   DB.audit.unshift({ id: DB.audit.length+1, timestamp: now(), user_id: userId, username, action, entity_type: entityType, entity_id: entityId, details });
   saveDB();
@@ -1811,13 +1832,25 @@ function fallback(cmd, a) {
       const tok = crypto.randomUUID();
       DB.sessions[tok] = u.id;
       addAudit(u.id, u.username, 'LOGIN', 'session', tok, '');
-      return { token:tok, user:{id:u.id,username:u.username,full_name:u.full_name,role:u.role,active:u.active,created_at:u.created_at,updated_at:u.updated_at}};
+      return { token:tok, user:{id:u.id,username:u.username,full_name:u.full_name,role:u.role,active:u.active,must_change_password:!!u.must_change_password,created_at:u.created_at,updated_at:u.updated_at}};
+    }
+    case 'cmd_change_own_password': {
+      const uid=DB.sessions[a.token]; if(!uid) throw 'Non authentifié';
+      const u=DB.users.find(x=>x.id===uid);
+      if(!u || !verifyPwd(a.currentPassword, u.password_hash)) throw 'Mot de passe actuel incorrect';
+      validatePassword(a.newPassword);
+      u.password_hash = hashPwd(a.newPassword);
+      u.must_change_password = false;
+      u.updated_at = now();
+      addAudit(u.id, u.username, 'CHANGE_OWN_PASSWORD', 'user', u.id, '');
+      saveDB();
+      return null;
     }
     case 'cmd_logout': { const uid=DB.sessions[a.token]; const u=DB.users.find(x=>x.id===uid); addAudit(uid,u?.username,'LOGOUT','session',a.token,''); delete DB.sessions[a.token]; return null; }
     case 'cmd_validate_session': {
       const uid = DB.sessions[a.token]; if(!uid) throw 'Session invalide';
       const u = DB.users.find(x=>x.id===uid); if(!u||!u.active) throw 'Session invalide';
-      return {id:u.id,username:u.username,full_name:u.full_name,role:u.role,active:u.active,created_at:u.created_at,updated_at:u.updated_at};
+      return {id:u.id,username:u.username,full_name:u.full_name,role:u.role,active:u.active,must_change_password:!!u.must_change_password,created_at:u.created_at,updated_at:u.updated_at};
     }
     case 'cmd_list_users': return DB.users.map(u=>({id:u.id,username:u.username,full_name:u.full_name,role:u.role,active:u.active,created_at:u.created_at,updated_at:u.updated_at}));
     case 'cmd_create_user': {
@@ -1868,7 +1901,10 @@ function fallback(cmd, a) {
     }
     case 'cmd_set_inspection_status': {
       const insp=DB.inspections.find(i=>i.id===a.inspectionId);
-      if(insp){insp.status=a.status; insp.updated_at=now(); if(a.status==='validated'){insp.validated_by=session?.user?.id;insp.validated_by_name=session?.user?.full_name;insp.validated_at=now();}}
+      if(!insp) throw 'Inspection non trouvée';
+      if(!canTransition(insp.status, a.status)) throw `Transition invalide : ${insp.status} → ${a.status}`;
+      insp.status=a.status; insp.updated_at=now();
+      if(a.status==='validated'){insp.validated_by=session?.user?.id;insp.validated_by_name=session?.user?.full_name;insp.validated_at=now();}
       addAudit(session?.user?.id, session?.user?.username, 'SET_STATUS_'+a.status.toUpperCase(),'inspection',a.inspectionId,'');
       saveDB(); return null;
     }
@@ -1986,6 +2022,11 @@ async function doLogout() {
   showScreen('login');
 }
 async function afterLogin() {
+  // P0: Forcer le changement de mot de passe si nécessaire
+  if(session.user.must_change_password) {
+    showForcePasswordChange();
+    return;
+  }
   document.getElementById('tRight').style.display='flex';
   document.getElementById('tUser').textContent=session.user.full_name;
   document.getElementById('tRole').textContent=roleLabel(session.user.role);
@@ -1993,6 +2034,34 @@ async function afterLogin() {
   buildTopNav();
   showScreen('dash');
   loadDashboard();
+}
+function showForcePasswordChange() {
+  openModal(`<h3 style="color:var(--accent)">Changement de mot de passe obligatoire</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:var(--space-m)">Pour des raisons de sécurité, vous devez changer votre mot de passe par défaut avant de continuer.</p>
+    <div class="field"><label>Mot de passe actuel</label><input id="fpCurrent" type="password" placeholder="Mot de passe actuel"/></div>
+    <div class="field"><label>Nouveau mot de passe</label><input id="fpNew" type="password" placeholder="Min. 8 caractères, lettres + chiffres"/></div>
+    <div class="field"><label>Confirmer</label><input id="fpConfirm" type="password" placeholder="Confirmer le nouveau mot de passe"/></div>
+    <div class="err" id="fpErr" style="font-size:13px;color:var(--accent);min-height:18px;margin-bottom:8px"></div>
+    <div class="modal-actions">
+      <button class="btn-primary" style="width:auto;padding:8px 20px;font-size:13px" onclick="doForcePasswordChange()">Changer le mot de passe</button>
+    </div>`);
+}
+async function doForcePasswordChange() {
+  const cur = document.getElementById('fpCurrent').value;
+  const nw = document.getElementById('fpNew').value;
+  const conf = document.getElementById('fpConfirm').value;
+  const errEl = document.getElementById('fpErr');
+  try {
+    if(!cur) throw 'Saisissez votre mot de passe actuel';
+    validatePassword(nw);
+    if(nw !== conf) throw 'Les mots de passe ne correspondent pas';
+    if(nw === cur) throw 'Le nouveau mot de passe doit être différent';
+    await invoke('cmd_change_own_password',{token:session.token, currentPassword:cur, newPassword:nw});
+    session.user.must_change_password = false;
+    sessionStorage.setItem('ipharma_session', JSON.stringify(session));
+    closeModal();
+    afterLogin();
+  } catch(e) { errEl.textContent = e.toString(); }
 }
 function roleLabel(r){ return {admin:'Superadmin',lead_inspector:'Inspecteur en chef',inspector:'Inspecteur',viewer:'Lecteur'}[r]||r; }
 
@@ -2211,15 +2280,18 @@ async function createAndStart() {
     suite_admin: document.getElementById('mSuiteAdmin').value,
     acte: document.getElementById('mActe').value
   };
-  const req = {
-    grid_id: activeGrid.id,
-    date_inspection: document.getElementById('mDate').value,
-    establishment: document.getElementById('mEstab').value,
-    inspection_type: document.getElementById('mType').value,
-    inspectors: document.getElementById('mInsp').value.split(',').map(s=>s.trim()).filter(Boolean),
-    extra_meta: extra_meta
-  };
   try {
+    const establishment = validateInput(document.getElementById('mEstab').value, 'Établissement', 2, 200);
+    const date_inspection = document.getElementById('mDate').value;
+    if(!date_inspection) throw 'La date d\'inspection est obligatoire';
+    const req = {
+      grid_id: activeGrid.id,
+      date_inspection,
+      establishment,
+      inspection_type: document.getElementById('mType').value,
+      inspectors: document.getElementById('mInsp').value.split(',').map(s=>s.trim()).filter(Boolean),
+      extra_meta: extra_meta
+    };
     currentInspectionId = await invoke('cmd_create_inspection',{token:session.token, req});
     document.getElementById('tTitle').textContent=activeGrid.name;
     document.getElementById('tSub').textContent=req.establishment||activeGrid.code;
@@ -2751,7 +2823,7 @@ async function openGridEditor(gridId) {
           </div>
         </div>
         <div style="display:flex;gap:6px">
-          <button class="btn-sm" onclick="showEditMetaModal('${gridId}','${esc(grid.name)}','${esc(grid.description)}','${grid.icon}')">Métadonnées</button>
+          <button class="btn-sm" onclick="showEditMetaModal('${gridId}','${escAttr(grid.name)}','${escAttr(grid.description)}','${grid.icon}')">Métadonnées</button>
           <button class="btn-sm" onclick="showGridVersions('${gridId}')">Versions</button>
           <button class="btn-sm" onclick="doExportGrid('${gridId}')">Exporter JSON</button>
         </div>
@@ -2767,8 +2839,8 @@ async function openGridEditor(gridId) {
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border)">
           <strong style="font-size:14px">${section.id}. ${section.title}</strong>
           <div style="display:flex;gap:6px">
-            <button class="btn-sm" style="font-size:11px" onclick="showAddCriterionModal('${gridId}',${section.id},'${esc(section.title)}')">+ Critère</button>
-            <button class="btn-sm" style="font-size:11px" onclick="showEditSectionModal('${gridId}',${section.id},'${esc(section.title)}')">Renommer</button>
+            <button class="btn-sm" style="font-size:11px" onclick="showAddCriterionModal('${gridId}',${section.id},'${escAttr(section.title)}')">+ Critère</button>
+            <button class="btn-sm" style="font-size:11px" onclick="showEditSectionModal('${gridId}',${section.id},'${escAttr(section.title)}')">Renommer</button>
             <button class="btn-sm" style="font-size:11px;color:var(--accent)" onclick="doDeleteSection('${gridId}',${section.id})">Suppr.</button>
           </div>
         </div>`;
@@ -2790,7 +2862,7 @@ async function openGridEditor(gridId) {
             <td style="padding:6px 10px">${c.description}</td>
             <td style="padding:6px 10px"><span style="font-size:11px;padding:2px 6px;background:${{'critique':'#fef2f2','majeur':'#fffbeb','mineur':'#eff6ff','info':'#f3f4f6'}[c.severity||'majeur']};color:${{'critique':'#dc2626','majeur':'#d97706','mineur':'#2563eb','info':'#6b7280'}[c.severity||'majeur']}">${(c.severity||'majeur').toUpperCase()}</span></td>
             <td style="padding:6px 10px;text-align:right">
-              <button class="btn-sm" style="font-size:11px" onclick="showEditCriterionModal('${gridId}',${c.id},'${esc(c.reference)}','${esc(c.description)}',${c.pre_opening},'${c.severity||''}')">Modifier</button>
+              <button class="btn-sm" style="font-size:11px" onclick="showEditCriterionModal('${gridId}',${c.id},'${escAttr(c.reference)}','${escAttr(c.description)}',${c.pre_opening},'${c.severity||''}')">Modifier</button>
               <button class="btn-sm" style="font-size:11px;color:var(--accent)" onclick="doDeleteCriterion('${gridId}',${c.id})">Suppr.</button>
             </td>
           </tr>`;
@@ -2930,8 +3002,8 @@ async function renderUsers() {
         <td><span class="role-tag role-${u.role}">${roleLabel(u.role)}</span></td>
         <td class="mono">${u.created_at?.substring(0,10)||'—'}</td>
         <td>
-          <button class="btn-sm" onclick="showEditUserModal('${u.id}','${esc(u.full_name)}','${u.role}',${u.active})">Modifier</button>
-          <button class="btn-sm" onclick="showChangePwModal('${u.id}','${esc(u.full_name)}')">MdP</button>
+          <button class="btn-sm" onclick="showEditUserModal('${u.id}','${escAttr(u.full_name)}','${u.role}',${u.active})">Modifier</button>
+          <button class="btn-sm" onclick="showChangePwModal('${u.id}','${escAttr(u.full_name)}')">MdP</button>
           ${u.active?`<button class="btn-sm" style="color:var(--accent)" onclick="deactivateUser('${u.id}')">Désactiver</button>`
             :`<button class="btn-sm" style="color:var(--accent)" onclick="reactivateUser('${u.id}')">Réactiver</button>`}
         </td>
@@ -2939,7 +3011,7 @@ async function renderUsers() {
       </tbody></table>`;
   } catch(e){ document.getElementById('usersPanel').innerHTML=`<p style="color:var(--accent)">${e}</p>`; }
 }
-function esc(s){return s.replace(/'/g,"\\'").replace(/"/g,'&quot;')}
+function escAttr(s){if(!s)return'';return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
 function showCreateUserModal() {
   openModal(`<h3>Nouvel utilisateur</h3>
@@ -2951,7 +3023,11 @@ function showCreateUserModal() {
 }
 async function doCreateUser() {
   try {
-    await invoke('cmd_create_user',{token:session.token, req:{username:document.getElementById('nuUser').value,full_name:document.getElementById('nuName').value,role:document.getElementById('nuRole').value,password:document.getElementById('nuPass').value}});
+    const username = validateInput(document.getElementById('nuUser').value, "Nom d'utilisateur", 3, 50);
+    const full_name = validateInput(document.getElementById('nuName').value, 'Nom complet', 2, 100);
+    const password = validatePassword(document.getElementById('nuPass').value);
+    const role = document.getElementById('nuRole').value;
+    await invoke('cmd_create_user',{token:session.token, req:{username, full_name, role, password}});
     closeModal(); renderUsers();
   } catch(e){alert(e)}
 }
@@ -2969,7 +3045,7 @@ function showChangePwModal(id,name) {
     <div class="field"><label>Nouveau mot de passe</label><input id="cpPass" type="password"/></div>
     <div class="modal-actions"><button class="btn-sm" onclick="closeModal()">Annuler</button><button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="doChangePw('${id}')">Changer</button></div>`);
 }
-async function doChangePw(id) { try { await invoke('cmd_change_password',{token:session.token, userId:id, newPassword:document.getElementById('cpPass').value}); closeModal(); } catch(e){alert(e)} }
+async function doChangePw(id) { try { validatePassword(document.getElementById('cpPass').value); await invoke('cmd_change_password',{token:session.token, userId:id, newPassword:document.getElementById('cpPass').value}); closeModal(); } catch(e){alert(e)} }
 async function deactivateUser(id) { if(!confirm('Désactiver cet utilisateur ?')) return; try { await invoke('cmd_delete_user',{token:session.token, userId:id}); renderUsers(); } catch(e){alert(e)} }
 async function reactivateUser(id) { try { await invoke('cmd_update_user',{token:session.token, userId:id, req:{active:true}}); renderUsers(); } catch(e){alert(e)} }
 

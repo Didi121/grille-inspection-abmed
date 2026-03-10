@@ -9,6 +9,7 @@ pub struct User {
     pub full_name: String,
     pub role: String,
     pub active: bool,
+    pub must_change_password: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -40,7 +41,7 @@ pub fn login(db: &Database, username: &str, password: &str) -> Result<SessionInf
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
 
     let result = conn.query_row(
-        "SELECT id, username, full_name, role, active, password_hash, created_at, updated_at FROM users WHERE username = ?1",
+        "SELECT id, username, full_name, role, active, password_hash, created_at, updated_at, must_change_password FROM users WHERE username = ?1",
         params![username],
         |row| {
             Ok((
@@ -52,11 +53,12 @@ pub fn login(db: &Database, username: &str, password: &str) -> Result<SessionInf
                 row.get::<_,String>(5)?,
                 row.get::<_,String>(6)?,
                 row.get::<_,String>(7)?,
+                row.get::<_,bool>(8).unwrap_or(false),
             ))
         },
     ).map_err(|_| "Identifiants incorrects".to_string())?;
 
-    let (id, uname, full_name, role, active, hash, created_at, updated_at) = result;
+    let (id, uname, full_name, role, active, hash, created_at, updated_at, must_change_password) = result;
 
     if !active {
         return Err("Compte désactivé".to_string());
@@ -80,20 +82,21 @@ pub fn login(db: &Database, username: &str, password: &str) -> Result<SessionInf
 
     Ok(SessionInfo {
         token: token.clone(),
-        user: User { id, username: uname, full_name, role, active, created_at, updated_at },
+        user: User { id, username: uname, full_name, role, active, must_change_password, created_at, updated_at },
     })
 }
 
 pub fn validate_session(db: &Database, token: &str) -> Result<User, String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     conn.query_row(
-        "SELECT u.id, u.username, u.full_name, u.role, u.active, u.created_at, u.updated_at
+        "SELECT u.id, u.username, u.full_name, u.role, u.active, u.created_at, u.updated_at, u.must_change_password
          FROM sessions s JOIN users u ON s.user_id = u.id
          WHERE s.token = ?1 AND s.expires_at > datetime('now','localtime') AND u.active = 1",
         params![token],
         |row| Ok(User {
             id: row.get(0)?, username: row.get(1)?, full_name: row.get(2)?,
             role: row.get(3)?, active: row.get(4)?, created_at: row.get(5)?, updated_at: row.get(6)?,
+            must_change_password: row.get::<_,bool>(7).unwrap_or(false),
         }),
     ).map_err(|_| "Session invalide ou expirée".to_string())
 }
@@ -119,7 +122,7 @@ pub fn create_user(db: &Database, req: &CreateUserRequest) -> Result<User, Strin
 
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     Ok(User { id, username: req.username.clone(), full_name: req.full_name.clone(),
-              role: req.role.clone(), active: true, created_at: now.clone(), updated_at: now })
+              role: req.role.clone(), active: true, must_change_password: false, created_at: now.clone(), updated_at: now })
 }
 
 pub fn update_user(db: &Database, user_id: &str, req: &UpdateUserRequest) -> Result<(), String> {
@@ -150,15 +153,51 @@ pub fn change_password(db: &Database, user_id: &str, new_password: &str) -> Resu
 pub fn list_users(db: &Database) -> Result<Vec<User>, String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare(
-        "SELECT id, username, full_name, role, active, created_at, updated_at FROM users ORDER BY created_at"
+        "SELECT id, username, full_name, role, active, created_at, updated_at, must_change_password FROM users ORDER BY created_at"
     ).map_err(|e| e.to_string())?;
     let users = stmt.query_map([], |row| Ok(User {
         id: row.get(0)?, username: row.get(1)?, full_name: row.get(2)?,
         role: row.get(3)?, active: row.get(4)?, created_at: row.get(5)?, updated_at: row.get(6)?,
+        must_change_password: row.get::<_,bool>(7).unwrap_or(false),
     })).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
     .collect();
     Ok(users)
+}
+
+pub fn clear_must_change_password(db: &Database, user_id: &str) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE users SET must_change_password = 0, updated_at = datetime('now','localtime') WHERE id = ?1",
+        params![user_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn validate_input(value: &str, field_name: &str, min_len: usize, max_len: usize) -> Result<String, String> {
+    let trimmed = value.trim().to_string();
+    if trimmed.len() < min_len {
+        return Err(format!("{} doit contenir au moins {} caractères", field_name, min_len));
+    }
+    if trimmed.len() > max_len {
+        return Err(format!("{} ne peut pas dépasser {} caractères", field_name, max_len));
+    }
+    Ok(trimmed)
+}
+
+pub fn validate_password(password: &str) -> Result<(), String> {
+    if password.len() < 8 {
+        return Err("Le mot de passe doit contenir au moins 8 caractères".to_string());
+    }
+    if password.len() > 128 {
+        return Err("Le mot de passe ne peut pas dépasser 128 caractères".to_string());
+    }
+    let has_letter = password.chars().any(|c| c.is_alphabetic());
+    let has_digit = password.chars().any(|c| c.is_numeric());
+    if !has_letter || !has_digit {
+        return Err("Le mot de passe doit contenir des lettres et des chiffres".to_string());
+    }
+    Ok(())
 }
 
 pub fn delete_user(db: &Database, user_id: &str) -> Result<(), String> {

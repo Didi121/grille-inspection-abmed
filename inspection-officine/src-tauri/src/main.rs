@@ -94,6 +94,9 @@ fn cmd_list_users(database: State<Database>, token: String) -> Result<Vec<User>,
 #[tauri::command]
 fn cmd_create_user(database: State<Database>, audit_database: State<AuditDatabase>, token: String, req: CreateUserRequest) -> Result<User, String> {
     let admin = require_role(&database, &token, &["admin"])?;
+    users::validate_input(&req.username, "Nom d'utilisateur", 3, 50)?;
+    users::validate_input(&req.full_name, "Nom complet", 2, 100)?;
+    users::validate_password(&req.password)?;
     let user = users::create_user(&database, &req)?;
     audit_database.log_user_action(&admin.id, &admin.username,
         "CREATE_USER", "user", &user.id,
@@ -114,9 +117,23 @@ fn cmd_update_user(database: State<Database>, audit_database: State<AuditDatabas
 #[tauri::command]
 fn cmd_change_password(database: State<Database>, audit_database: State<AuditDatabase>, token: String, user_id: String, new_password: String) -> Result<(), String> {
     let admin = require_role(&database, &token, &["admin"])?;
+    users::validate_password(&new_password)?;
     users::change_password(&database, &user_id, &new_password)?;
     audit_database.log_user_action(&admin.id, &admin.username,
         "CHANGE_PASSWORD", "user", &user_id, "");
+    Ok(())
+}
+
+#[tauri::command]
+fn cmd_change_own_password(database: State<Database>, audit_database: State<AuditDatabase>, token: String, current_password: String, new_password: String) -> Result<(), String> {
+    let user = users::validate_session(&database, &token)?;
+    users::validate_password(&new_password)?;
+    // Vérifier le mot de passe actuel
+    users::login(&database, &user.username, &current_password)?;
+    users::change_password(&database, &user.id, &new_password)?;
+    users::clear_must_change_password(&database, &user.id)?;
+    audit_database.log_user_action(&user.id, &user.username,
+        "CHANGE_OWN_PASSWORD", "user", &user.id, "");
     Ok(())
 }
 
@@ -542,9 +559,19 @@ fn cmd_export_audit_json(audit_database: State<AuditDatabase>, token: String, da
 // ════════════════════ MAIN ════════════════════
 
 fn main() {
-    let app_dir = dirs_next::data_dir()
+    // Migration du chemin de données
+    let old_dir = dirs_next::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("abmed-inspections");
+    let app_dir = dirs_next::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("inspections-pharma");
+    if old_dir.join("inspections.db").exists() && !app_dir.join("inspections.db").exists() {
+        std::fs::create_dir_all(&app_dir).ok();
+        std::fs::copy(old_dir.join("inspections.db"), app_dir.join("inspections.db")).ok();
+        std::fs::copy(old_dir.join("audit.db"), app_dir.join("audit.db")).ok();
+        eprintln!("Migration: données copiées de abmed-inspections vers inspections-pharma");
+    }
 
     // Créer les deux bases de données
     let database = Database::new(app_dir.clone());
@@ -589,7 +616,7 @@ fn main() {
             cmd_login, cmd_logout, cmd_validate_session,
             // Utilisateurs
             cmd_list_users, cmd_create_user, cmd_update_user,
-            cmd_change_password, cmd_delete_user,
+            cmd_change_password, cmd_change_own_password, cmd_delete_user,
             // Inspections
             cmd_create_inspection, cmd_list_inspections, cmd_get_inspection,
             cmd_get_responses, cmd_save_response, cmd_update_inspection_meta,

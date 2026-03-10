@@ -144,17 +144,22 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_grid_criteria_section ON grid_criteria(grid_id, grid_version, section_id);
         ").expect("Erreur création tables");
 
-        // Créer l'admin par défaut s'il n'existe pas
+        // Migration : ajouter must_change_password si absent
+        conn.execute_batch(
+            "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;"
+        ).ok(); // Silencieux si colonne existe déjà
+
+        // Créer l'admin par défaut s'il n'existe pas (avec changement de MdP obligatoire)
         let admin_exists: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM users WHERE username = 'admin'",
             [], |r| r.get(0)
         ).unwrap_or(false);
 
         if !admin_exists {
-            let hash = bcrypt::hash("admin123", 8).unwrap();
+            let hash = bcrypt::hash("admin123", 10).unwrap();
             let id = uuid::Uuid::new_v4().to_string();
             conn.execute(
-                "INSERT INTO users (id, username, full_name, role, password_hash) VALUES (?1,?2,?3,?4,?5)",
+                "INSERT INTO users (id, username, full_name, role, password_hash, must_change_password) VALUES (?1,?2,?3,?4,?5,1)",
                 params![id, "admin", "Administrateur", "admin", hash],
             ).ok();
         }

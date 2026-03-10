@@ -215,6 +215,25 @@ pub fn update_inspection_meta(db: &Database, inspection_id: &str, req: &CreateIn
 
 pub fn set_status(db: &Database, inspection_id: &str, status: &str, user_id: Option<&str>) -> Result<(), String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    // Valider la transition de statut
+    let current_status: String = conn.query_row(
+        "SELECT status FROM inspections WHERE id = ?1",
+        params![inspection_id],
+        |row| row.get(0),
+    ).map_err(|_| "Inspection non trouvée".to_string())?;
+
+    let valid = matches!(
+        (current_status.as_str(), status),
+        ("draft", "in_progress") | ("draft", "archived") |
+        ("in_progress", "completed") | ("in_progress", "draft") |
+        ("completed", "validated") | ("completed", "in_progress") |
+        ("validated", "archived")
+    );
+    if !valid {
+        return Err(format!("Transition de statut invalide : {} → {}", current_status, status));
+    }
+
     if status == "validated" {
         conn.execute(
             "UPDATE inspections SET status=?1, validated_by=?2, validated_at=datetime('now','localtime'),

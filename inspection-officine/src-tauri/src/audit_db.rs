@@ -184,7 +184,9 @@ impl AuditDatabase {
 
         let limit = filter.limit.unwrap_or(100);
         let offset = filter.offset.unwrap_or(0);
-        sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
+        sql.push_str(&format!(" LIMIT ?{} OFFSET ?{}", param_idx, param_idx + 1));
+        bind_values.push(Box::new(limit as i64));
+        bind_values.push(Box::new(offset as i64));
 
         // Construire les paramètres dynamiquement est compliqué en Rust
         // On va utiliser une approche alternative plus simple

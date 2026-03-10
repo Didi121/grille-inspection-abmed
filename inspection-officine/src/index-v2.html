@@ -1676,16 +1676,23 @@ function initFallbackDB() {
     DB.users.push({ id: crypto.randomUUID(), username:'chef1', full_name:'Dr. Tamou',
       role:'lead_inspector', active:true, password_hash: hashPwd('pass123'), created_at: now(), updated_at: now() });
   } else {
-    // Migration : convertir les anciens mots de passe en clair vers password_hash
-    let migrated = false;
+    // Migration/réparation : s'assurer que chaque user a un password_hash valide
+    const defaultPwds = { admin:'admin123', inspecteur1:'pass123', chef1:'pass123' };
+    let repaired = false;
     for (const u of DB.users) {
-      if (u.password && !u.password_hash) {
-        u.password_hash = hashPwd(u.password);
-        delete u.password;
-        migrated = true;
+      if (!u.password_hash) {
+        // Cas 1: ancien format avec password en clair
+        if (u.password) {
+          u.password_hash = hashPwd(u.password);
+          delete u.password;
+        } else {
+          // Cas 2: données corrompues (ni password ni hash) -> reset au défaut
+          u.password_hash = hashPwd(defaultPwds[u.username] || 'changeme');
+        }
+        repaired = true;
       }
     }
-    if (migrated) addAudit(null, 'system', 'MIGRATE_PASSWORDS', 'security', null, 'Migration mots de passe vers hash');
+    if (repaired) addAudit(null, 'system', 'REPAIR_PASSWORDS', 'security', null, 'Réparation mots de passe corrompus');
   }
   if (!DB.grids.length) {
     DB.grids = buildAllGridsJS().map(g=>({...g, status:'active', is_current:true, created_at:now()}));

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test Tauri</title></head>
+<body>
+<h1>Test Tauri API</h1>
+<div id="info" style="padding:20px;font-family:monospace;white-space:pre-wrap;background:#eee;margin:20px"></div>
+<div style="padding:20px">
+  <input id="user" value="admin" placeholder="username"/>
+  <input id="pass" value="admin123" type="password"/>
+  <button onclick="testLogin()">Test Login</button>
+  <div id="result" style="margin-top:10px;padding:10px;background:#ffd"></div>
+</div>
+<script>
+  const info = document.getElementById('info');
+  let lines = [];
+  function log(msg) { lines.push(msg); info.textContent = lines.join('\n'); }
+
+  log('=== Tauri Detection ===');
+  log('window.__TAURI__: ' + typeof window.__TAURI__);
+  log('window.__TAURI_INTERNALS__: ' + typeof window.__TAURI_INTERNALS__);
+
+  if (window.__TAURI__) {
+    log('__TAURI__ keys: ' + Object.keys(window.__TAURI__).join(', '));
+    if (window.__TAURI__.core) {
+      log('__TAURI__.core keys: ' + Object.keys(window.__TAURI__.core).join(', '));
+      log('__TAURI__.core.invoke: ' + typeof window.__TAURI__.core.invoke);
+    }
+  }
+
+  if (window.__TAURI_INTERNALS__) {
+    log('__TAURI_INTERNALS__ keys: ' + Object.keys(window.__TAURI_INTERNALS__).join(', '));
+    log('__TAURI_INTERNALS__.invoke: ' + typeof window.__TAURI_INTERNALS__.invoke);
+  }
+
+  let invokeFunc = null;
+  if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+    invokeFunc = window.__TAURI__.core.invoke;
+    log('\nUsing: __TAURI__.core.invoke');
+  } else if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
+    invokeFunc = window.__TAURI_INTERNALS__.invoke;
+    log('\nUsing: __TAURI_INTERNALS__.invoke');
+  } else {
+    log('\nNO TAURI INVOKE FOUND - Running in browser mode');
+  }
+
+  async function testLogin() {
+    const res = document.getElementById('result');
+    const u = document.getElementById('user').value;
+    const p = document.getElementById('pass').value;
+    res.textContent = 'Testing login...';
+    try {
+      if (!invokeFunc) throw new Error('No Tauri invoke available');
+      const r = await invokeFunc('cmd_login', {username: u, password: p});
+      res.textContent = 'SUCCESS: ' + JSON.stringify(r, null, 2);
+    } catch(e) {
+      res.textContent = 'ERROR: ' + e.toString();
+    }
+  }
+</script>
+</body>
+</html>

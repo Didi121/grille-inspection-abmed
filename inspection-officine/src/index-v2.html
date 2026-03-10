@@ -1498,6 +1498,62 @@ small {
   border-bottom: 1px solid var(--border);
 }
 .rpt-ecart-item .sec { font-size: 10px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+
+/* Risk level badges */
+.risk-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 2px solid;
+  letter-spacing: 0.02em;
+}
+.risk-badge .risk-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.risk-level-box {
+  border: 1px solid var(--border);
+  padding: 16px;
+  margin: 15px 0;
+  background: var(--surface);
+}
+.risk-level-box .risk-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+}
+.risk-level-box .risk-description {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.6;
+  margin-top: 8px;
+}
+.risk-level-box .risk-action {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--gray-100);
+  border-left: 3px solid var(--border);
+}
+.factor-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  font-weight: 600;
+  text-transform: uppercase;
+  display: inline-block;
+  margin-left: 4px;
+}
+.factor-aggravant { background: #fef2f2; color: #dc2626; }
+.factor-attenuant { background: #f0fdf4; color: #16a34a; }
 .rpt-ecart-item .desc { font-size: 12px; margin-top: 4px; }
 .rpt-ecart-item .ref { font-family: var(--mono); font-size: 10px; color: var(--text-muted); margin-top: 3px; }
 .rpt-ecart-item .obs { font-size: 11px; color: var(--text-muted); font-style: italic; margin-top: 4px; padding: 4px 8px; background: var(--gray-100); }
@@ -1634,8 +1690,8 @@ small {
         <div class="field"><label>Date attendue envoi rapport</label><input type="date" id="mDateRapport"/></div>
         <div class="field"><label>Date dépôt rapport préliminaire</label><input type="date" id="mDateRapportPrelim"/></div>
         <div class="field"><label>Date dépôt rapport intermédiaire</label><input type="date" id="mDateRapportInterm"/></div>
-        <div class="field"><label>Date envoi du rapport</label><input type="date" id="mDateEnvoiRapport"/></div>
-        <div class="field"><label>Date attendue CAPA</label><input type="date" id="mDateCapa"/></div>
+        <div class="field"><label>Date envoi du rapport</label><input type="date" id="mDateEnvoiRapport" onchange="autoCalcCapa()"/></div>
+        <div class="field"><label>Date attendue CAPA <small style="font-weight:400;text-transform:none;letter-spacing:0">(auto J+15)</small></label><input type="date" id="mDateCapa"/></div>
         <div class="field"><label>Date retour CAPA</label><input type="date" id="mDateRetourCapa"/></div>
         <div class="field"><label>Date de clôture</label><input type="date" id="mDateCloture"/></div>
         <div class="field"><label>Procès-Verbal</label><select id="mPV"><option value="">—</option><option>Oui</option><option>Non</option></select></div>
@@ -2121,6 +2177,20 @@ async function selectGrid(gridId) {
   showScreen('meta');
 }
 
+// ═══════════════════ AUTO-CALC CAPA J+15 ═══════════════════
+function autoCalcCapa() {
+  const envoi = document.getElementById('mDateEnvoiRapport').value;
+  if(!envoi) return;
+  const d = new Date(envoi);
+  d.setDate(d.getDate() + 15);
+  const capaField = document.getElementById('mDateCapa');
+  // Ne remplit que si vide ou si déjà auto-calculé (pas de saisie manuelle antérieure)
+  if(!capaField.value || capaField.dataset.auto==='1') {
+    capaField.value = d.toISOString().split('T')[0];
+    capaField.dataset.auto = '1';
+  }
+}
+
 // ═══════════════════ CREATE INSPECTION ═══════════════════
 async function createAndStart() {
   const extra_meta = {
@@ -2210,14 +2280,35 @@ function renderCriterion() {
         <button class="resp-btn non ${r.conforme===false?'sel':''}" onclick="setResp(${c.id},false)">✕ Non conforme</button>
         <button class="resp-btn na ${r.conforme==='na'?'sel':''}" onclick="setResp(${c.id},'na')" style="max-width:80px">N/A</button>
       </div>
-      ${r.conforme===false?`<div style="margin-top:10px;display:flex;align-items:center;gap:8px">
-        <span style="font-size:12px;color:var(--text-muted)">Sévérité de l'écart :</span>
-        <select onchange="setSeverity(${c.id},this.value)" style="padding:4px 8px;font-family:var(--font);font-size:12px;border:1px solid var(--border)">
-          <option value="critique" ${(r.severity||c.severity||'majeur')==='critique'?'selected':''}>Critique</option>
-          <option value="majeur" ${(r.severity||c.severity||'majeur')==='majeur'?'selected':''}>Majeur</option>
-          <option value="mineur" ${(r.severity||c.severity||'majeur')==='mineur'?'selected':''}>Mineur</option>
-          <option value="info" ${(r.severity||c.severity||'majeur')==='info'?'selected':''}>Observation</option>
-        </select>
+      ${r.conforme===false?`<div style="margin-top:12px;padding:12px;background:var(--gray-50);border:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text-muted);font-weight:500">Sévérité :</span>
+          <select onchange="setSeverity(${c.id},this.value)" style="padding:4px 8px;font-family:var(--font);font-size:12px;border:1px solid var(--border)">
+            <option value="critique" ${(r.severity||c.severity||'majeur')==='critique'?'selected':''}>Critique</option>
+            <option value="majeur" ${(r.severity||c.severity||'majeur')==='majeur'?'selected':''}>Majeur</option>
+            <option value="mineur" ${(r.severity||c.severity||'majeur')==='mineur'?'selected':''}>Mineur</option>
+            <option value="info" ${(r.severity||c.severity||'majeur')==='info'?'selected':''}>Observation</option>
+          </select>
+          <span style="font-size:12px;color:var(--text-muted);font-weight:500;margin-left:8px">Facteur :</span>
+          <select onchange="setFactor(${c.id},this.value)" style="padding:4px 8px;font-family:var(--font);font-size:12px;border:1px solid var(--border)">
+            <option value="neutre" ${(r.factor||'neutre')==='neutre'?'selected':''}>Neutre</option>
+            <option value="aggravant" ${r.factor==='aggravant'?'selected':''}>Aggravant ↑</option>
+            <option value="attenuant" ${r.factor==='attenuant'?'selected':''}>Atténuant ↓</option>
+          </select>
+          ${r.factor&&r.factor!=='neutre'?`<span style="font-size:11px;color:${r.factor==='aggravant'?'#dc2626':'#16a34a'};font-weight:600">→ ${adjustSeverity(r.severity||c.severity||'majeur',r.factor).toUpperCase()}</span>`:''}
+        </div>
+        ${r.factor&&r.factor!=='neutre'?`<div style="margin-top:8px">
+          <input type="text" placeholder="Justification du facteur ${r.factor}..." value="${r.factorJustification||''}"
+            oninput="setFactorJustification(${c.id},this.value)"
+            style="width:100%;padding:6px 8px;font-family:var(--font);font-size:12px;border:1px solid var(--border);background:var(--white)"/>
+        </div>`:''}
+        ${(r.severity||c.severity||'majeur')==='critique'?`<div style="margin-top:8px;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="immDanger_${c.id}" ${r.immediateDanger?'checked':''}
+            onchange="setImmediateDanger(${c.id},this.checked)"/>
+          <label for="immDanger_${c.id}" style="font-size:11px;color:#7f1d1d;font-weight:600;cursor:pointer">
+            Risque immédiat pour la santé publique
+          </label>
+        </div>`:''}
       </div>`:''}
       <div class="obs-lbl">Observations</div>
       <textarea class="obs-input" placeholder="Observation…" oninput="updateObs(${c.id},this.value)">${r.observation||''}</textarea>
@@ -2306,6 +2397,71 @@ function updateProgress() {
   document.getElementById('pCount').textContent=applicable<total?`${ans} / ${applicable} (${naCount} N/A)`:`${ans} / ${total}`;
 }
 
+// ═══════════════════ RISK ASSESSMENT ENGINE ═══════════════════
+const SEV_ORDER = ['info','mineur','majeur','critique'];
+function adjustSeverity(baseSev, factor) {
+  if(!factor || factor==='neutre') return baseSev;
+  const idx = SEV_ORDER.indexOf(baseSev);
+  if(idx<0) return baseSev;
+  if(factor==='aggravant') return SEV_ORDER[Math.min(idx+1, SEV_ORDER.length-1)];
+  if(factor==='attenuant') return SEV_ORDER[Math.max(idx-1, 0)];
+  return baseSev;
+}
+
+function determineComplianceRisk(critiques, majeurs, mineurs, obsInfos) {
+  const nCrit=critiques.length, nMaj=majeurs.length, nMin=mineurs.length;
+  // Scenario 4: Risque immédiat pour la santé publique
+  const hasImmediate = critiques.some(e => responses[e.id]?.immediateDanger);
+  if(hasImmediate) return {
+    level:4, code:'RISQUE_IMMEDIAT', label:'Risque immédiat — Santé publique',
+    color:'#7f1d1d', bgColor:'#fef2f2',
+    action:'Décision réglementaire immédiate requise sur place. Consultation de la hiérarchie obligatoire.',
+    description:`Présence d'au moins un écart critique présentant un danger urgent et immédiat pour la santé publique.`
+  };
+  // Scenario 3: ≥1 critique OU ≥6 majeurs → Non conforme
+  if(nCrit>=1 || nMaj>=6) return {
+    level:3, code:'NON_CONFORME', label:'Non conforme',
+    color:'#dc2626', bgColor:'#fef2f2',
+    action:'Soumission CAPA obligatoire. Réinspection probable.',
+    description:`Fonctionnement à un niveau inacceptable. ${nCrit>=1?nCrit+' écart(s) critique(s)':''}${nCrit>=1&&nMaj>=6?' et ':''}${nMaj>=6?nMaj+' écarts majeurs (≥6)':''}${nCrit>=1&&nMaj<6&&nMaj>0?', '+nMaj+' majeur(s)':''}.`
+  };
+  // Scenario 2: quelques majeurs (<6) + mineurs → Conformité conditionnelle
+  if(nMaj>0) return {
+    level:2, code:'CONFORMITE_CONDITIONNELLE', label:'Conformité sous réserve',
+    color:'#d97706', bgColor:'#fffbeb',
+    action:'Décision après réception et évaluation du CAPA. Inspection de suivi sur place possible.',
+    description:`${nMaj} écart(s) majeur(s) et ${nMin} mineur(s). La conformité sera évaluée après réception du plan d'actions correctives.`
+  };
+  // Scenario 1: seulement mineurs/observations → Conforme
+  return {
+    level:1, code:'CONFORME', label:'Conforme',
+    color:'#16a34a', bgColor:'#f0fdf4',
+    action:'Soumission CAPA. Suivi lors de la prochaine inspection de routine.',
+    description:`Fonctionnement à un niveau acceptable. ${nMin} écart(s) mineur(s)${obsInfos.length?' et '+obsInfos.length+' observation(s)':''}.`
+  };
+}
+
+function determineGlobalRisk(rate, critiques, majeurs, hasImmediate) {
+  if(hasImmediate || rate<40) return {label:'Très élevé', color:'#7f1d1d', bgColor:'#fef2f2'};
+  if(critiques.length>=1 || majeurs.length>=6 || rate<60) return {label:'Élevé', color:'#dc2626', bgColor:'#fef2f2'};
+  if(majeurs.length>0 || rate<80) return {label:'Modéré', color:'#d97706', bgColor:'#fffbeb'};
+  return {label:'Faible', color:'#16a34a', bgColor:'#f0fdf4'};
+}
+
+function setFactor(id, factor) {
+  if(!responses[id]) responses[id]={conforme:null,observation:''};
+  responses[id].factor = factor;
+}
+function setFactorJustification(id, text) {
+  if(!responses[id]) responses[id]={conforme:null,observation:''};
+  responses[id].factorJustification = text;
+}
+function setImmediateDanger(id, checked) {
+  if(!responses[id]) responses[id]={conforme:null,observation:''};
+  responses[id].immediateDanger = checked;
+  renderCriterion();
+}
+
 // ═══════════════════ RAPPORT OFFICIEL ═══════════════════
 async function renderReport() {
   const total=allCriteria.length;
@@ -2318,16 +2474,26 @@ async function renderReport() {
   const rate=ans>0?((conf/ans)*100).toFixed(1):0;
   const ecarts=allCriteria.filter(c=>responses[c.id]?.conforme===false).map(c=>({...c,observation:responses[c.id]?.observation||''}));
 
-  // Classifier les écarts par sévérité (depuis la réponse, puis la grille, puis défaut)
+  // Classifier les écarts : sévérité de base + ajustement par facteur aggravant/atténuant
   ecarts.forEach(e => {
     const r = responses[e.id];
-    e.effectiveSeverity = r?.severity || e.severity || (e.pre_opening ? 'critique' : 'majeur');
+    const baseSev = r?.severity || e.severity || (e.pre_opening ? 'critique' : 'majeur');
+    e.baseSeverity = baseSev;
+    e.factor = r?.factor || 'neutre';
+    e.factorJustification = r?.factorJustification || '';
+    e.immediateDanger = r?.immediateDanger || false;
+    e.effectiveSeverity = adjustSeverity(baseSev, e.factor);
   });
   const critiques = ecarts.filter(e=>e.effectiveSeverity==='critique');
   const majeurs = ecarts.filter(e=>e.effectiveSeverity==='majeur');
   const mineurs = ecarts.filter(e=>e.effectiveSeverity==='mineur');
-  const observations = ecarts.filter(e=>e.effectiveSeverity==='info');
+  const obsInfos = ecarts.filter(e=>e.effectiveSeverity==='info');
   const totalEcarts = ecarts.length;
+  // Détermination automatique du niveau de risque
+  const riskCompliance = determineComplianceRisk(critiques, majeurs, mineurs, obsInfos);
+  const rateNum = parseFloat(rate);
+  const riskGlobal = determineGlobalRisk(rateNum, critiques, majeurs, riskCompliance.level===4);
+  const adjustedCount = ecarts.filter(e=>e.factor!=='neutre').length;
 
   const isLeadOrAdmin = ['admin','lead_inspector'].includes(session?.user?.role);
   let insp = null;
@@ -2375,28 +2541,57 @@ async function renderReport() {
       <div class="rpt-stat-box"><span class="rpt-stat-num" style="color:var(--accent)">${critiques.length}</span><span class="rpt-stat-lbl">Critiques</span></div>
       <div class="rpt-stat-box"><span class="rpt-stat-num" style="color:#d97706">${majeurs.length}</span><span class="rpt-stat-lbl">Majeurs</span></div>
       <div class="rpt-stat-box"><span class="rpt-stat-num" style="color:#0284c7">${mineurs.length}</span><span class="rpt-stat-lbl">Mineurs</span></div>
-      ${observations.length?`<div class="rpt-stat-box"><span class="rpt-stat-num" style="color:#6b7280">${observations.length}</span><span class="rpt-stat-lbl">Observations</span></div>`:''}
+      ${obsInfos.length?`<div class="rpt-stat-box"><span class="rpt-stat-num" style="color:#6b7280">${obsInfos.length}</span><span class="rpt-stat-lbl">Observations</span></div>`:''}
       <div class="rpt-stat-box" style="background:var(--surface)"><span class="rpt-stat-num">${totalEcarts}</span><span class="rpt-stat-lbl">Total</span></div>
     </div>
     <table class="rpt-data-table">
       <tr><td class="label">Critères applicables :</td><td class="value">${applicable} / ${total}${naCount>0?' ('+naCount+' N/A)':''}</td></tr>
       <tr><td class="label">Critères évalués :</td><td class="value">${ans} / ${applicable}${notEval>0?' ('+notEval+' non évalués)':''}</td></tr>
       <tr><td class="label">Taux de conformité :</td><td class="value"><strong>${rate}%</strong> (${conf} conformes / ${ans} évalués)</td></tr>
-      <tr><td class="label">Niveau de Risque de Conformité :</td><td class="value">${d(null)}</td></tr>
-      <tr><td class="label">Niveau de Risque Global :</td><td class="value">${d(null)}</td></tr>
+      <tr><td class="label">Niveau de Risque de Conformité :</td><td class="value">
+        <span class="risk-badge" style="border-color:${riskCompliance.color};color:${riskCompliance.color};background:${riskCompliance.bgColor}">
+          <span class="risk-dot" style="background:${riskCompliance.color}"></span>${riskCompliance.label}
+        </span>
+      </td></tr>
+      <tr><td class="label">Niveau de Risque Global :</td><td class="value">
+        <span class="risk-badge" style="border-color:${riskGlobal.color};color:${riskGlobal.color};background:${riskGlobal.bgColor}">
+          <span class="risk-dot" style="background:${riskGlobal.color}"></span>${riskGlobal.label}
+        </span>
+      </td></tr>
       <tr><td class="label">Procès-Verbal :</td><td class="value">${d(meta.proces_verbal)}</td></tr>
     </table>
+    <div class="risk-level-box">
+      <div class="risk-title">Analyse du Niveau de Risque de Conformité</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span class="risk-badge" style="border-color:${riskCompliance.color};color:${riskCompliance.color};background:${riskCompliance.bgColor};font-size:14px">
+          <span class="risk-dot" style="background:${riskCompliance.color}"></span>
+          Scénario ${riskCompliance.level} — ${riskCompliance.label.toUpperCase()}
+        </span>
+      </div>
+      <div class="risk-description">${riskCompliance.description}</div>
+      <div class="risk-action"><strong>Suite recommandée :</strong> ${riskCompliance.action}</div>
+      <div style="margin-top:10px;font-size:11px;color:var(--text-muted)">
+        Synthèse : ${critiques.length} critique(s), ${majeurs.length} majeur(s), ${mineurs.length} mineur(s), ${obsInfos.length} observation(s)
+        ${adjustedCount>0?' — <em>'+adjustedCount+' écart(s) ajusté(s) par facteur aggravant/atténuant</em>':''}
+      </div>
+    </div>
     ${ecarts.length?`
       <div style="margin-top:12px;font-size:11px;font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.03em">Détail des écarts (${ecarts.length})</div>
       ${ecarts.map(e=>{
         const sevColors={critique:'#dc2626',majeur:'#d97706',mineur:'#2563eb',info:'#6b7280'};
         const sevLabels={critique:'CRITIQUE',majeur:'MAJEUR',mineur:'MINEUR',info:'OBSERVATION'};
         const sev=e.effectiveSeverity||'majeur';
-        return `<div class="rpt-ecart-item">
-        <div class="sec">${e.sectionTitle} — <span style="color:${sevColors[sev]};font-weight:700">${sevLabels[sev]}</span></div>
+        const wasAdjusted=e.factor&&e.factor!=='neutre';
+        return `<div class="rpt-ecart-item" style="border-left-color:${sevColors[sev]}">
+        <div class="sec">${e.sectionTitle} — <span style="color:${sevColors[sev]};font-weight:700">${sevLabels[sev]}</span>
+          ${wasAdjusted?`<span class="factor-tag factor-${e.factor}">${e.factor==='aggravant'?'↑ Aggravant':'↓ Atténuant'}</span>
+          <span style="font-size:9px;color:var(--text-muted)">(initial: ${(e.baseSeverity||'majeur').toUpperCase()})</span>`:''}
+          ${e.immediateDanger?'<span style="font-size:10px;padding:2px 6px;background:#7f1d1d;color:#fff;font-weight:700;margin-left:4px">DANGER IMMÉDIAT</span>':''}
+        </div>
         <div class="desc">${e.description}</div>
         ${e.reference?`<div class="ref">${e.reference}</div>`:''}
         ${e.observation?`<div class="obs">"${e.observation}"</div>`:''}
+        ${e.factorJustification?`<div style="font-size:10px;color:var(--text-muted);margin-top:4px;padding-left:8px;border-left:2px solid ${e.factor==='aggravant'?'#dc2626':'#16a34a'}"><em>Justification : ${e.factorJustification}</em></div>`:''}
       </div>`;}).join('')}
     `:''}
 
@@ -2410,7 +2605,11 @@ async function renderReport() {
     <div class="rpt-section-hdr">V. CAPA et Suivi</div>
     <table class="rpt-data-table">
       <tr><td class="label">Date d'Envoi du Rapport :</td><td class="value">${fmtDate(meta.date_envoi_rapport)}</td></tr>
-      <tr><td class="label">Date Attendue CAPA :</td><td class="value">${fmtDate(meta.date_capa)}</td></tr>
+      <tr><td class="label">Date Attendue CAPA (J+15) :</td><td class="value">${(()=>{
+        if(meta.date_capa) return fmtDate(meta.date_capa);
+        if(meta.date_envoi_rapport) { const dc=new Date(meta.date_envoi_rapport); dc.setDate(dc.getDate()+15); return fmtDate(dc.toISOString().split('T')[0])+' <span style="font-size:10px;color:var(--text-muted)">(auto-calculée)</span>'; }
+        return '—';
+      })()}</td></tr>
       <tr><td class="label">Date de Retour du CAPA :</td><td class="value">${fmtDate(meta.date_retour_capa)}</td></tr>
       <tr><td class="label">Date de Clôture :</td><td class="value">${fmtDate(meta.date_cloture)}</td></tr>
     </table>

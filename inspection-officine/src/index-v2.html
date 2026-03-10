@@ -1586,7 +1586,8 @@ small {
         <div class="field"><label>Responsable / Promoteur</label><input id="mResp" placeholder="Dr. ..."/></div>
         <div class="field"><label>Commune</label><input id="mCommune" placeholder="Cotonou"/></div>
         <div class="field"><label>Département</label><input id="mDept" placeholder="Littoral"/></div>
-        <div class="field"><label>Période de mission</label><input id="mPeriode" placeholder="09 au 13/02/26"/></div>
+        <div class="field"><label>Début de mission</label><input type="date" id="mPeriodeDu"/></div>
+        <div class="field"><label>Fin de mission</label><input type="date" id="mPeriodeAu"/></div>
         <div class="field"><label>Inspecteur Principal</label><input id="mLead" placeholder="Dr. ..."/></div>
         <div class="field full"><label>Équipe d'inspection</label><input id="mInsp" placeholder="Inspecteurs séparés par virgule"/></div>
       </div>
@@ -2075,7 +2076,8 @@ async function createAndStart() {
     responsable: document.getElementById('mResp').value,
     commune: document.getElementById('mCommune').value,
     departement: document.getElementById('mDept').value,
-    periode: document.getElementById('mPeriode').value,
+    periode_du: document.getElementById('mPeriodeDu').value,
+    periode_au: document.getElementById('mPeriodeAu').value,
     lead_inspector: document.getElementById('mLead').value,
     date_rapport_attendue: document.getElementById('mDateRapport').value,
     date_rapport_prelim: document.getElementById('mDateRapportPrelim').value,
@@ -2239,7 +2241,7 @@ async function renderReport() {
       <tr><td class="label">Inspecteur Principal :</td><td class="value">${d(meta.lead_inspector)||d(insp?.created_by_name)}</td></tr>
       <tr><td class="label">Type d'inspection :</td><td class="value">${(insp?.inspection_type||'—').toUpperCase()}</td></tr>
       <tr><td class="label">Équipe d'inspection :</td><td class="value">${(insp?.inspectors||[]).join(', ')||'—'}</td></tr>
-      <tr><td class="label">Période de Mission :</td><td class="value">${d(meta.periode)}</td></tr>
+      <tr><td class="label">Période de Mission :</td><td class="value">${meta.periode_du||meta.periode_au ? (fmtDate(meta.periode_du)+' au '+fmtDate(meta.periode_au)) : '—'}</td></tr>
       <tr><td class="label">Date Attendue d'Envoi du Rapport Intermédiaire :</td><td class="value">${fmtDate(meta.date_rapport_attendue)}</td></tr>
       <tr><td class="label">Date de Dépôt du Rapport Préliminaire :</td><td class="value">${fmtDate(meta.date_rapport_prelim)}</td></tr>
       <tr><td class="label">Date de Dépôt du Rapport Intermédiaire :</td><td class="value">${fmtDate(meta.date_rapport_interm)}</td></tr>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>ABMed — Inspections V2</title>
+<title>Inspections Pharma</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 /* ═══════════════════ VARIABLES ═══════════════════ */
@@ -1335,7 +1335,7 @@ small {
 .act-btn.danger { color: var(--accent); }
 .act-btn.danger:hover { background: var(--accent-light); }
 
-/* Rapport A4 officiel ABMed */
+/* Rapport A4 officiel */
 .a4-report {
   max-width: 210mm;
   margin: 0 auto;
@@ -1501,7 +1501,7 @@ small {
     <div class="topbar-brand" onclick="goToDashboard()">
       <div class="topbar-logo" id="tLogo">ABM</div>
       <div>
-        <div class="topbar-title" id="tTitle">ABMed Inspections</div>
+        <div class="topbar-title" id="tTitle">Inspections Pharma</div>
         <div class="topbar-sub" id="tSub">Connexion</div>
       </div>
     </div>
@@ -1522,7 +1522,7 @@ small {
     <div class="login-wrap">
       <div class="login-card">
         <h2>Connexion</h2>
-        <p class="sub">Inspections pharmaceutiques ABMed</p>
+        <p class="sub">Inspections pharmaceutiques</p>
         <div class="err" id="loginErr"></div>
         <div class="field"><label>Nom d'utilisateur</label><input id="loginUser" placeholder="admin"/></div>
         <div class="field"><label>Mot de passe</label><input id="loginPass" type="password" placeholder="••••••" onkeydown="if(event.key==='Enter')doLogin()"/></div>
@@ -1880,7 +1880,7 @@ function buildTopNav() {
 function goToDashboard() {
   if(!session) return;
   currentInspectionId=null;
-  document.getElementById('tTitle').textContent='ABMed Inspections';
+  document.getElementById('tTitle').textContent='Inspections Pharma';
   document.getElementById('tSub').textContent='Tableau de bord';
   document.getElementById('tLogo').style.background='var(--black)';
   document.getElementById('pStrip').style.display='none';
@@ -2149,7 +2149,7 @@ function updateProgress() {
   document.getElementById('pCount').textContent=`${ans} / ${total}`;
 }
 
-// ═══════════════════ RAPPORT OFFICIEL ABMed ═══════════════════
+// ═══════════════════ RAPPORT OFFICIEL ═══════════════════
 async function renderReport() {
   const total=allCriteria.length;
   const ans=Object.values(responses).filter(r=>r.conforme!==null&&r.conforme!==undefined).length;
@@ -2180,7 +2180,7 @@ async function renderReport() {
       <div class="rpt-republique">République du Bénin</div>
       <div class="rpt-devise">Fraternité — Justice — Travail</div>
       <div style="margin-top:8px;font-weight:700;font-size:13px">MINISTÈRE DE LA SANTÉ</div>
-      <div style="font-weight:700;font-size:13px;margin-top:2px">ABMed</div>
+      <div style="font-weight:700;font-size:13px;margin-top:2px">Inspections Pharma</div>
       <div style="font-size:10px;margin-top:2px">Direction de l'Inspection et de la Réglementation Pharmaceutique</div>
     </div>
 

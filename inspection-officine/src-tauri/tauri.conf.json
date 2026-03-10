@@ -1,15 +1,15 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicklasmoeller/tauri-config-schema/main/schema.json",
-  "productName": "Inspection Officine",
-  "version": "1.0.0",
-  "identifier": "bj.gouv.abmed.inspection-officine",
+  "productName": "Inspections Pharma",
+  "version": "2.0.0",
+  "identifier": "com.inspections.pharma",
   "build": {
     "frontendDist": "../src"
   },
   "app": {
     "windows": [
       {
-        "title": "ABMed - Inspection Officine",
+        "title": "Inspections Pharma",
         "width": 1100,
         "height": 750,
         "resizable": true,

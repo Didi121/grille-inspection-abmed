@@ -2164,10 +2164,15 @@ function renderSidebar() {
       <div class="si-badge ${allDone?'done':''}">${allNa?'—':allDone?'✓':ans+'/'+(total-naItems)}</div>`;
     el.onclick=()=>{currentIndex=start;renderCriterion();renderSidebar()};
     list.appendChild(el);
-    // Bouton "Passer" pour marquer toute la section N/A
     const skipBtn=document.createElement('button'); skipBtn.className='skip-section-btn';
-    skipBtn.textContent='Passer cette section → N/A';
-    skipBtn.onclick=(e)=>{e.stopPropagation();skipSection(s)};
+    if(allNa) {
+      skipBtn.textContent='Réactiver cette section';
+      skipBtn.style.color='#16a34a';
+      skipBtn.onclick=(e)=>{e.stopPropagation();reactivateSection(s)};
+    } else {
+      skipBtn.textContent='Passer cette section → N/A';
+      skipBtn.onclick=(e)=>{e.stopPropagation();skipSection(s)};
+    }
     list.appendChild(skipBtn);
     idx+=total;
   });
@@ -2224,6 +2229,19 @@ function skipSection(section) {
     responses[item.id].conforme='na';
     if(currentInspectionId && session) {
       invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:item.id, conforme:null, observation:'[N/A]'}).catch(()=>{});
+    }
+  });
+  renderSidebar(); renderCriterion(); updateProgress();
+}
+
+function reactivateSection(section) {
+  section.items.forEach(item => {
+    if(responses[item.id]) {
+      responses[item.id].conforme=null;
+      responses[item.id].observation = responses[item.id].observation === '[N/A]' ? '' : responses[item.id].observation;
+    }
+    if(currentInspectionId && session) {
+      invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:item.id, conforme:null, observation:''}).catch(()=>{});
     }
   });
   renderSidebar(); renderCriterion(); updateProgress();

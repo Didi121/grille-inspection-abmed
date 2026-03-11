@@ -162,11 +162,11 @@ pub fn verify_migration(db: &Database) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
-    fn test_migration_counts() {
-        // Ce test pourrait être exécuté en environnement de test
-        // Vérifier les comptages attendus
+    fn test_hardcoded_grids_exist() {
+        let officine = crate::grids::officine::build();
+        let grossiste = crate::grids::grossiste::build();
+        assert!(!officine.sections.is_empty(), "Officine doit avoir des sections");
+        assert!(!grossiste.sections.is_empty(), "Grossiste doit avoir des sections");
     }
 }

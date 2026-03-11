@@ -4,7 +4,6 @@ mod grid;
 mod grids;
 mod db;
 mod users;
-mod audit;
 mod storage;
 mod audit_db;
 mod migration;
@@ -14,7 +13,6 @@ mod grid_diff;
 use grid::{GridInfo, Section};
 use db::Database;
 use users::{CreateUserRequest, UpdateUserRequest, SessionInfo, User};
-// audit module kept for backward compatibility
 use audit_db::{AuditDatabase, AuditFilter as AuditDbFilter, AuditEntry as AuditDbEntry};
 use storage::{SavedInspection, SavedResponse, CreateInspectionRequest};
 use serde::{Deserialize, Serialize};
@@ -179,9 +177,13 @@ fn cmd_get_responses(database: State<Database>, token: String, inspection_id: St
 
 #[tauri::command]
 fn cmd_save_response(database: State<Database>, audit_database: State<AuditDatabase>, token: String, inspection_id: String,
-    criterion_id: u32, conforme: Option<bool>, observation: String) -> Result<(), String> {
+    criterion_id: u32, conforme: Option<bool>, observation: String,
+    severity: Option<String>, factor: Option<String>,
+    factor_justification: Option<String>, immediate_danger: Option<bool>) -> Result<(), String> {
     let user = users::validate_session(&database, &token)?;
-    storage::save_response(&database, &inspection_id, criterion_id, conforme, &observation, &user.id)?;
+    storage::save_response(&database, &inspection_id, criterion_id, conforme, &observation, &user.id,
+        severity.as_deref(), factor.as_deref(),
+        factor_justification.as_deref(), immediate_danger.unwrap_or(false))?;
     audit_database.log_user_action(&user.id, &user.username,
         "SAVE_RESPONSE", "response", &format!("{}:{}", inspection_id, criterion_id),
         &format!("{{\"conforme\":{},\"has_obs\":{}}}", conforme.map(|b|b.to_string()).unwrap_or("null".into()), !observation.is_empty()));

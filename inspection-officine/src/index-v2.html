@@ -1574,6 +1574,10 @@ small {
   gap: 0 var(--space-m);
 }
 .meta-grid .field.full { grid-column: 1 / -1; }
+.required { color: var(--danger, #dc2626); font-weight: 600; }
+input:required:invalid:not(:placeholder-shown), input:required:invalid:not([value=""]) {
+  border-color: var(--danger, #dc2626);
+}
 
 /* Responsive ajouts */
 @media (max-width: 768px) {
@@ -1674,16 +1678,16 @@ small {
       <h1 class="meta-title">Nouvelle inspection</h1>
       <p class="meta-sub">Informations générales</p>
       <div class="meta-grid">
-        <div class="field"><label>Date d'inspection</label><input type="date" id="mDate"/></div>
-        <div class="field"><label>Type d'inspection</label><select id="mType"><option>Routine</option><option>Enquête</option><option>Plaintes/réclamations</option><option>À la demande</option><option>Pré-ouverture</option><option>Suivi</option><option>Visite de conformité</option><option>Autre</option></select></div>
-        <div class="field full"><label>Établissement</label><input id="mEstab" placeholder="Ex: Pharmacie du Carrefour"/></div>
+        <div class="field"><label>Date d'inspection <span class="required">*</span></label><input type="date" id="mDate" required/></div>
+        <div class="field"><label>Type d'inspection <span class="required">*</span></label><select id="mType" required><option>Routine</option><option>Enquête</option><option>Plaintes/réclamations</option><option>À la demande</option><option>Pré-ouverture</option><option>Suivi</option><option>Visite de conformité</option><option>Autre</option></select></div>
+        <div class="field full"><label>Établissement <span class="required">*</span></label><input id="mEstab" placeholder="Ex: Pharmacie du Carrefour" required/></div>
         <div class="field"><label>Responsable / Promoteur</label><input id="mResp" placeholder="Dr. ..."/></div>
-        <div class="field"><label>Commune</label><input id="mCommune" placeholder="Cotonou"/></div>
-        <div class="field"><label>Département</label><input id="mDept" placeholder="Littoral"/></div>
-        <div class="field"><label>Début de mission</label><input type="date" id="mPeriodeDu"/></div>
-        <div class="field"><label>Fin de mission</label><input type="date" id="mPeriodeAu"/></div>
-        <div class="field"><label>Inspecteur Principal</label><input id="mLead" placeholder="Dr. ..."/></div>
-        <div class="field full"><label>Équipe d'inspection</label><input id="mInsp" placeholder="Inspecteurs séparés par virgule"/></div>
+        <div class="field"><label>Commune <span class="required">*</span></label><input id="mCommune" placeholder="Cotonou" required/></div>
+        <div class="field"><label>Département <span class="required">*</span></label><input id="mDept" placeholder="Littoral" required/></div>
+        <div class="field"><label>Début de mission <span class="required">*</span></label><input type="date" id="mPeriodeDu" required/></div>
+        <div class="field"><label>Fin de mission <span class="required">*</span></label><input type="date" id="mPeriodeAu" required/></div>
+        <div class="field"><label>Inspecteur Principal <span class="required">*</span></label><input id="mLead" placeholder="Dr. ..." required/></div>
+        <div class="field full"><label>Équipe d'inspection <span class="required">*</span></label><input id="mInsp" placeholder="Inspecteurs séparés par virgule" required/></div>
       </div>
       <h4 style="margin:var(--space-m) 0 var(--space-s);color:var(--text-muted);font-size:13px;text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--border);padding-top:var(--space-m)">Suivi et suites</h4>
       <div class="meta-grid">
@@ -1882,11 +1886,11 @@ function fallback(cmd, a) {
     case 'cmd_get_inspection': return DB.inspections.find(i=>i.id===a.inspectionId);
     case 'cmd_get_responses': {
       const r = DB.responses[a.inspectionId]||{};
-      return Object.entries(r).map(([cid,v])=>({criterion_id:parseInt(cid), conforme:v.conforme, observation:v.observation||'', updated_by:v.updated_by, updated_at:v.updated_at||now()}));
+      return Object.entries(r).map(([cid,v])=>({criterion_id:parseInt(cid), conforme:v.conforme, observation:v.observation||'', updated_by:v.updated_by, updated_at:v.updated_at||now(), severity:v.severity||null, factor:v.factor||null, factor_justification:v.factor_justification||null, immediate_danger:v.immediate_danger||false}));
     }
     case 'cmd_save_response': {
       if(!DB.responses[a.inspectionId]) DB.responses[a.inspectionId]={};
-      DB.responses[a.inspectionId][a.criterionId]={conforme:a.conforme, observation:a.observation, updated_by:session?.user?.id, updated_at:now()};
+      DB.responses[a.inspectionId][a.criterionId]={conforme:a.conforme, observation:a.observation, updated_by:session?.user?.id, updated_at:now(), severity:a.severity||null, factor:a.factor||null, factor_justification:a.factorJustification||null, immediate_danger:a.immediateDanger||false};
       const insp=DB.inspections.find(i=>i.id===a.inspectionId);
       if(insp){insp.status=insp.status==='draft'?'in_progress':insp.status; insp.updated_at=now();
         const r=DB.responses[a.inspectionId]; const vals=Object.values(r);
@@ -2208,7 +2212,12 @@ async function openInspection(id) {
     activeGrid = grid; sections = grid.sections;
     allCriteria = []; sections.forEach(s=>s.items.forEach(item=>allCriteria.push({...item, sectionTitle:s.title, sectionId:s.id})));
     responses = {};
-    savedResps.forEach(r=>{ responses[r.criterion_id] = { conforme:r.conforme, observation:r.observation }; });
+    savedResps.forEach(r=>{ responses[r.criterion_id] = {
+      conforme: r.conforme, observation: r.observation,
+      severity: r.severity || null, factor: r.factor || null,
+      factorJustification: r.factor_justification || null,
+      immediateDanger: r.immediate_danger || false
+    }; });
     currentIndex = 0;
 
     document.getElementById('tTitle').textContent=grid.name;
@@ -2262,35 +2271,48 @@ function autoCalcCapa() {
 
 // ═══════════════════ CREATE INSPECTION ═══════════════════
 async function createAndStart() {
-  const extra_meta = {
-    responsable: document.getElementById('mResp').value,
-    commune: document.getElementById('mCommune').value,
-    departement: document.getElementById('mDept').value,
-    periode_du: document.getElementById('mPeriodeDu').value,
-    periode_au: document.getElementById('mPeriodeAu').value,
-    lead_inspector: document.getElementById('mLead').value,
-    date_rapport_attendue: document.getElementById('mDateRapport').value,
-    date_rapport_prelim: document.getElementById('mDateRapportPrelim').value,
-    date_rapport_interm: document.getElementById('mDateRapportInterm').value,
-    date_envoi_rapport: document.getElementById('mDateEnvoiRapport').value,
-    date_capa: document.getElementById('mDateCapa').value,
-    date_retour_capa: document.getElementById('mDateRetourCapa').value,
-    date_cloture: document.getElementById('mDateCloture').value,
-    proces_verbal: document.getElementById('mPV').value,
-    suite_admin: document.getElementById('mSuiteAdmin').value,
-    acte: document.getElementById('mActe').value
-  };
   try {
+    // ── Champs obligatoires ──
     const establishment = validateInput(document.getElementById('mEstab').value, 'Établissement', 2, 200);
     const date_inspection = document.getElementById('mDate').value;
     if(!date_inspection) throw 'La date d\'inspection est obligatoire';
+    const leadInspector = validateInput(document.getElementById('mLead').value, 'Inspecteur principal', 2, 100);
+    const inspectorsRaw = document.getElementById('mInsp').value.split(',').map(s=>s.trim()).filter(Boolean);
+    if(inspectorsRaw.length === 0) throw 'Veuillez renseigner au moins un inspecteur dans l\'équipe';
+    const commune = validateInput(document.getElementById('mCommune').value, 'Commune', 2, 100);
+    const departement = validateInput(document.getElementById('mDept').value, 'Département', 2, 100);
+    const periodeDu = document.getElementById('mPeriodeDu').value;
+    const periodeAu = document.getElementById('mPeriodeAu').value;
+    if(!periodeDu) throw 'La date de début de mission est obligatoire';
+    if(!periodeAu) throw 'La date de fin de mission est obligatoire';
+    if(periodeDu > periodeAu) throw 'La date de début de mission doit être antérieure à la date de fin';
+    if(date_inspection < periodeDu || date_inspection > periodeAu) throw 'La date d\'inspection doit être comprise dans la période de mission';
+
+    const extra_meta = {
+      responsable: document.getElementById('mResp').value,
+      commune,
+      departement,
+      periode_du: periodeDu,
+      periode_au: periodeAu,
+      lead_inspector: leadInspector,
+      date_rapport_attendue: document.getElementById('mDateRapport').value,
+      date_rapport_prelim: document.getElementById('mDateRapportPrelim').value,
+      date_rapport_interm: document.getElementById('mDateRapportInterm').value,
+      date_envoi_rapport: document.getElementById('mDateEnvoiRapport').value,
+      date_capa: document.getElementById('mDateCapa').value,
+      date_retour_capa: document.getElementById('mDateRetourCapa').value,
+      date_cloture: document.getElementById('mDateCloture').value,
+      proces_verbal: document.getElementById('mPV').value,
+      suite_admin: document.getElementById('mSuiteAdmin').value,
+      acte: document.getElementById('mActe').value
+    };
     const req = {
       grid_id: activeGrid.id,
       date_inspection,
       establishment,
       inspection_type: document.getElementById('mType').value,
-      inspectors: document.getElementById('mInsp').value.split(',').map(s=>s.trim()).filter(Boolean),
-      extra_meta: extra_meta
+      inspectors: inspectorsRaw,
+      extra_meta
     };
     currentInspectionId = await invoke('cmd_create_inspection',{token:session.token, req});
     document.getElementById('tTitle').textContent=activeGrid.name;
@@ -2399,12 +2421,21 @@ function renderCriterion() {
 }
 
 // ═══════════════════ RESPONSES ═══════════════════
+function riskParams(id) {
+  const r = responses[id] || {};
+  return {
+    severity: r.severity || null,
+    factor: r.factor || null,
+    factorJustification: r.factorJustification || null,
+    immediateDanger: r.immediateDanger || false
+  };
+}
 function skipSection(section) {
   section.items.forEach(item => {
     if(!responses[item.id]) responses[item.id]={conforme:null,observation:''};
     responses[item.id].conforme='na';
     if(currentInspectionId && session) {
-      invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:item.id, conforme:null, observation:'[N/A]'}).catch(()=>{});
+      invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:item.id, conforme:null, observation:'[N/A]', ...riskParams(item.id)}).catch(()=>{});
     }
   });
   renderSidebar(); renderCriterion(); updateProgress();
@@ -2417,7 +2448,7 @@ function reactivateSection(section) {
       responses[item.id].observation = responses[item.id].observation === '[N/A]' ? '' : responses[item.id].observation;
     }
     if(currentInspectionId && session) {
-      invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:item.id, conforme:null, observation:''}).catch(()=>{});
+      invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:item.id, conforme:null, observation:'', ...riskParams(item.id)}).catch(()=>{});
     }
   });
   renderSidebar(); renderCriterion(); updateProgress();
@@ -2442,7 +2473,7 @@ async function setResp(id,val) {
   const backendVal = (newVal === 'na') ? null : newVal;
   const obs = responses[id].observation || (newVal === 'na' ? '[N/A]' : '');
   if(currentInspectionId && session) {
-    try { await invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:id, conforme:backendVal, observation:obs}); }
+    try { await invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:id, conforme:backendVal, observation:obs, ...riskParams(id)}); }
     catch(e){ console.error('Save error',e); }
   }
   renderCriterion(); updateProgress(); renderSidebar();
@@ -2453,7 +2484,7 @@ async function updateObs(id,text) {
   clearTimeout(updateObs._t);
   updateObs._t = setTimeout(async()=>{
     if(currentInspectionId && session) {
-      try { await invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:id, conforme:responses[id].conforme, observation:text}); }
+      try { await invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:id, conforme:responses[id].conforme, observation:text, ...riskParams(id)}); }
       catch(e){ console.error(e); }
     }
   }, 600);
@@ -2523,15 +2554,26 @@ function determineGlobalRisk(rate, critiques, majeurs, hasImmediate) {
 function setFactor(id, factor) {
   if(!responses[id]) responses[id]={conforme:null,observation:''};
   responses[id].factor = factor;
+  persistRisk(id);
 }
 function setFactorJustification(id, text) {
   if(!responses[id]) responses[id]={conforme:null,observation:''};
   responses[id].factorJustification = text;
+  clearTimeout(setFactorJustification._t);
+  setFactorJustification._t = setTimeout(()=>persistRisk(id), 600);
 }
 function setImmediateDanger(id, checked) {
   if(!responses[id]) responses[id]={conforme:null,observation:''};
   responses[id].immediateDanger = checked;
+  persistRisk(id);
   renderCriterion();
+}
+async function persistRisk(id) {
+  if(!currentInspectionId || !session) return;
+  const r = responses[id] || {};
+  const conf = r.conforme === 'na' ? null : (r.conforme ?? null);
+  try { await invoke('cmd_save_response',{token:session.token, inspectionId:currentInspectionId, criterionId:id, conforme:conf, observation:r.observation||'', ...riskParams(id)}); }
+  catch(e){ console.error('persistRisk error',e); }
 }
 
 // ═══════════════════ RAPPORT OFFICIEL ═══════════════════

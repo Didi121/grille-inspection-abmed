@@ -178,150 +178,24 @@ pub fn compare_grids(grid1: &GridInfo, grid2: &GridInfo) -> DiffReport {
     diff
 }
 
-/// Génère un rapport HTML coloré des différences
-pub fn generate_diff_html(diff: &DiffReport) -> String {
-    let mut html = String::from(
-        "<style>
-            .diff-section { margin: 20px 0; }
-            .diff-added { background-color: #dcfce7; padding: 8px; border-left: 4px solid #22c55e; }
-            .diff-removed { background-color: #fee2e2; padding: 8px; border-left: 4px solid #ef4444; }
-            .diff-modified { background-color: #fef3c7; padding: 8px; border-left: 4px solid #f59e0b; }
-            .diff-field { margin: 4px 0; font-size: 12px; }
-            .old-value { color: #dc2626; text-decoration: line-through; }
-            .new-value { color: #16a34a; font-weight: bold; }
-        </style>\n"
-    );
-
-    // Sections ajoutées
-    if !diff.added_sections.is_empty() {
-        html.push_str("<div class='diff-section'><h3>✅ Sections ajoutées</h3>\n");
-        for section in &diff.added_sections {
-            html.push_str(&format!(
-                "<div class='diff-added'><strong>[{}]</strong> {}</div>\n",
-                section.id, section.title
-            ));
-        }
-        html.push_str("</div>\n");
-    }
-
-    // Sections supprimées
-    if !diff.removed_sections.is_empty() {
-        html.push_str("<div class='diff-section'><h3>❌ Sections supprimées</h3>\n");
-        for section in &diff.removed_sections {
-            html.push_str(&format!(
-                "<div class='diff-removed'><strong>[{}]</strong> {}</div>\n",
-                section.id, section.title
-            ));
-        }
-        html.push_str("</div>\n");
-    }
-
-    // Sections modifiées
-    if !diff.modified_sections.is_empty() {
-        html.push_str("<div class='diff-section'><h3>📝 Sections modifiées</h3>\n");
-        for section in &diff.modified_sections {
-            html.push_str(&format!(
-                "<div class='diff-modified'><strong>[{}]</strong> ",
-                section.id
-            ));
-            if let Some(old) = &section.old_title {
-                html.push_str(&format!(
-                    "<span class='old-value'>{}</span> → ",
-                    old
-                ));
-            }
-            html.push_str(&format!(
-                "<span class='new-value'>{}</span></div>\n",
-                section.title
-            ));
-        }
-        html.push_str("</div>\n");
-    }
-
-    // Critères ajoutés
-    if !diff.added_criteria.is_empty() {
-        html.push_str("<div class='diff-section'><h3>✅ Critères ajoutés</h3>\n");
-        for criterion in &diff.added_criteria {
-            html.push_str(&format!(
-                "<div class='diff-added'>\
-                    <div class='diff-field'><strong>[{}]</strong> {}</div>\
-                    <div class='diff-field'>{}</div>\
-                </div>\n",
-                criterion.id, criterion.reference, criterion.description
-            ));
-        }
-        html.push_str("</div>\n");
-    }
-
-    // Critères supprimés
-    if !diff.removed_criteria.is_empty() {
-        html.push_str("<div class='diff-section'><h3>❌ Critères supprimés</h3>\n");
-        for criterion in &diff.removed_criteria {
-            html.push_str(&format!(
-                "<div class='diff-removed'>\
-                    <div class='diff-field'><strong>[{}]</strong> {}</div>\
-                    <div class='diff-field'>{}</div>\
-                </div>\n",
-                criterion.id, criterion.reference, criterion.description
-            ));
-        }
-        html.push_str("</div>\n");
-    }
-
-    // Critères modifiés
-    if !diff.modified_criteria.is_empty() {
-        html.push_str("<div class='diff-section'><h3>📝 Critères modifiés</h3>\n");
-        for criterion in &diff.modified_criteria {
-            html.push_str(&format!(
-                "<div class='diff-modified'><strong>[{}]</strong><br/>",
-                criterion.id
-            ));
-
-            if let Some(old) = &criterion.old_reference {
-                html.push_str(&format!(
-                    "<div class='diff-field'>Référence: <span class='old-value'>{}</span> → <span class='new-value'>{}</span></div>",
-                    old, criterion.reference
-                ));
-            }
-
-            if let Some(old) = &criterion.old_description {
-                html.push_str(&format!(
-                    "<div class='diff-field'>Description: <span class='old-value'>{}</span> → <span class='new-value'>{}</span></div>",
-                    old, criterion.description
-                ));
-            }
-
-            if let Some(old) = criterion.old_pre_opening {
-                html.push_str(&format!(
-                    "<div class='diff-field'>Pré-ouverture: <span class='old-value'>{}</span> → <span class='new-value'>{}</span></div>",
-                    old, criterion.pre_opening
-                ));
-            }
-
-            html.push_str("</div>\n");
-        }
-        html.push_str("</div>\n");
-    }
-
-    if diff.added_sections.is_empty()
-        && diff.removed_sections.is_empty()
-        && diff.modified_sections.is_empty()
-        && diff.added_criteria.is_empty()
-        && diff.removed_criteria.is_empty()
-        && diff.modified_criteria.is_empty()
-    {
-        html.push_str("<p style='color: #666;'>Aucune différence détectée</p>\n");
-    }
-
-    html
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::compare_grids;
+    use crate::grid::{GridInfo, Section, Criterion};
 
     #[test]
-    fn test_compare_grids() {
-        // Tests unitaires pour la comparaison
+    fn test_compare_grids_identical() {
+        let grid = GridInfo {
+            id: "g1".into(), name: "Test".into(), code: "T".into(),
+            version: "1.0".into(), description: "".into(), icon: "".into(), color: "".into(),
+            sections: vec![Section {
+                id: 1, title: "S1".into(),
+                items: vec![Criterion { id: 1, reference: "R1".into(), description: "D1".into(), pre_opening: false }],
+            }],
+        };
+        let diff = compare_grids(&grid, &grid);
+        assert!(diff.added_sections.is_empty());
+        assert!(diff.removed_sections.is_empty());
+        assert!(diff.modified_criteria.is_empty());
     }
 }

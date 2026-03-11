@@ -144,10 +144,22 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_grid_criteria_section ON grid_criteria(grid_id, grid_version, section_id);
         ").expect("Erreur création tables");
 
-        // Migration : ajouter must_change_password si absent
+        // Migrations : ajouter les colonnes manquantes (silencieux si déjà présentes)
         conn.execute_batch(
             "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;"
-        ).ok(); // Silencieux si colonne existe déjà
+        ).ok();
+        conn.execute_batch(
+            "ALTER TABLE responses ADD COLUMN severity TEXT DEFAULT NULL;"
+        ).ok();
+        conn.execute_batch(
+            "ALTER TABLE responses ADD COLUMN factor TEXT DEFAULT NULL;"
+        ).ok();
+        conn.execute_batch(
+            "ALTER TABLE responses ADD COLUMN factor_justification TEXT DEFAULT NULL;"
+        ).ok();
+        conn.execute_batch(
+            "ALTER TABLE responses ADD COLUMN immediate_danger INTEGER DEFAULT 0;"
+        ).ok();
 
         // Créer l'admin par défaut s'il n'existe pas (avec changement de MdP obligatoire)
         let admin_exists: bool = conn.query_row(

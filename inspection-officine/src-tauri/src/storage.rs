@@ -36,6 +36,10 @@ pub struct SavedResponse {
     pub observation: String,
     pub updated_by: Option<String>,
     pub updated_at: String,
+    pub severity: Option<String>,
+    pub factor: Option<String>,
+    pub factor_justification: Option<String>,
+    pub immediate_danger: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,7 +159,7 @@ fn get_progress(conn: &rusqlite::Connection, inspection_id: &str) -> InspectionP
 pub fn get_responses(db: &Database, inspection_id: &str) -> Result<Vec<SavedResponse>, String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare(
-        "SELECT criterion_id, conforme, observation, updated_by, updated_at FROM responses WHERE inspection_id = ?1"
+        "SELECT criterion_id, conforme, observation, updated_by, updated_at, severity, factor, factor_justification, immediate_danger FROM responses WHERE inspection_id = ?1"
     ).map_err(|e| e.to_string())?;
 
     let resp = stmt.query_map(params![inspection_id], |row| {
@@ -166,6 +170,10 @@ pub fn get_responses(db: &Database, inspection_id: &str) -> Result<Vec<SavedResp
             observation: row.get::<_,String>(2).unwrap_or_default(),
             updated_by: row.get(3)?,
             updated_at: row.get::<_,String>(4).unwrap_or_default(),
+            severity: row.get(5)?,
+            factor: row.get(6)?,
+            factor_justification: row.get(7)?,
+            immediate_danger: row.get::<_,bool>(8).unwrap_or(false),
         })
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
@@ -176,16 +184,21 @@ pub fn get_responses(db: &Database, inspection_id: &str) -> Result<Vec<SavedResp
 
 // ── Sauvegarder une réponse ──
 
-pub fn save_response(db: &Database, inspection_id: &str, criterion_id: u32, conforme: Option<bool>, observation: &str, user_id: &str) -> Result<(), String> {
+pub fn save_response(
+    db: &Database, inspection_id: &str, criterion_id: u32,
+    conforme: Option<bool>, observation: &str, user_id: &str,
+    severity: Option<&str>, factor: Option<&str>,
+    factor_justification: Option<&str>, immediate_danger: bool,
+) -> Result<(), String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let conf_val: Option<i32> = conforme.map(|b| if b { 1 } else { 0 });
 
     conn.execute(
-        "INSERT INTO responses (inspection_id, criterion_id, conforme, observation, updated_by)
-         VALUES (?1, ?2, ?3, ?4, ?5)
+        "INSERT INTO responses (inspection_id, criterion_id, conforme, observation, updated_by, severity, factor, factor_justification, immediate_danger)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT(inspection_id, criterion_id)
-         DO UPDATE SET conforme=?3, observation=?4, updated_by=?5, updated_at=datetime('now','localtime')",
-        params![inspection_id, criterion_id, conf_val, observation, user_id],
+         DO UPDATE SET conforme=?3, observation=?4, updated_by=?5, severity=?6, factor=?7, factor_justification=?8, immediate_danger=?9, updated_at=datetime('now','localtime')",
+        params![inspection_id, criterion_id, conf_val, observation, user_id, severity, factor, factor_justification, immediate_danger],
     ).map_err(|e| e.to_string())?;
 
     // Mettre à jour le statut de l'inspection
@@ -329,6 +342,10 @@ mod tests {
                 observation TEXT DEFAULT '',
                 updated_by TEXT REFERENCES users(id),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                severity TEXT DEFAULT NULL,
+                factor TEXT DEFAULT NULL,
+                factor_justification TEXT DEFAULT NULL,
+                immediate_danger INTEGER DEFAULT 0,
                 UNIQUE(inspection_id, criterion_id)
             );
         ").unwrap();
@@ -457,8 +474,8 @@ mod tests {
     fn test_save_and_get_response() {
         let db = create_test_db();
         insert_inspection(&db, "i1", "draft");
-        assert!(save_response(&db, "i1", 1, Some(true), "RAS", "u1").is_ok());
-        assert!(save_response(&db, "i1", 2, Some(false), "NC observé", "u1").is_ok());
+        assert!(save_response(&db, "i1", 1, Some(true), "RAS", "u1", None, None, None, false).is_ok());
+        assert!(save_response(&db, "i1", 2, Some(false), "NC observé", "u1", Some("majeur"), None, None, false).is_ok());
         let resp = get_responses(&db, "i1").unwrap();
         assert_eq!(resp.len(), 2);
     }
@@ -467,19 +484,34 @@ mod tests {
     fn test_save_response_upsert() {
         let db = create_test_db();
         insert_inspection(&db, "i1", "draft");
-        save_response(&db, "i1", 1, Some(true), "OK", "u1").unwrap();
-        save_response(&db, "i1", 1, Some(false), "Corrigé", "u1").unwrap();
+        save_response(&db, "i1", 1, Some(true), "OK", "u1", None, None, None, false).unwrap();
+        save_response(&db, "i1", 1, Some(false), "Corrigé", "u1", Some("mineur"), Some("attenuant"), None, false).unwrap();
         let resp = get_responses(&db, "i1").unwrap();
         assert_eq!(resp.len(), 1);
         assert_eq!(resp[0].conforme, Some(false));
         assert_eq!(resp[0].observation, "Corrigé");
+        assert_eq!(resp[0].severity.as_deref(), Some("mineur"));
+        assert_eq!(resp[0].factor.as_deref(), Some("attenuant"));
+    }
+
+    #[test]
+    fn test_save_response_risk_fields() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        save_response(&db, "i1", 1, Some(false), "Critique", "u1",
+            Some("critique"), Some("aggravant"), Some("Récidive"), true).unwrap();
+        let resp = get_responses(&db, "i1").unwrap();
+        assert_eq!(resp[0].severity.as_deref(), Some("critique"));
+        assert_eq!(resp[0].factor.as_deref(), Some("aggravant"));
+        assert_eq!(resp[0].factor_justification.as_deref(), Some("Récidive"));
+        assert!(resp[0].immediate_danger);
     }
 
     #[test]
     fn test_save_response_changes_status_to_in_progress() {
         let db = create_test_db();
         insert_inspection(&db, "i1", "draft");
-        save_response(&db, "i1", 1, Some(true), "", "u1").unwrap();
+        save_response(&db, "i1", 1, Some(true), "", "u1", None, None, None, false).unwrap();
         let conn = db.conn.lock().unwrap();
         let status: String = conn.query_row(
             "SELECT status FROM inspections WHERE id = 'i1'", [], |r| r.get(0)
@@ -528,9 +560,9 @@ mod tests {
     fn test_progress_calculation() {
         let db = create_test_db();
         insert_inspection(&db, "i1", "draft");
-        save_response(&db, "i1", 1, Some(true), "", "u1").unwrap();
-        save_response(&db, "i1", 2, Some(false), "NC", "u1").unwrap();
-        save_response(&db, "i1", 3, None, "", "u1").unwrap();
+        save_response(&db, "i1", 1, Some(true), "", "u1", None, None, None, false).unwrap();
+        save_response(&db, "i1", 2, Some(false), "NC", "u1", Some("majeur"), None, None, false).unwrap();
+        save_response(&db, "i1", 3, None, "", "u1", None, None, None, false).unwrap();
 
         let conn = db.conn.lock().unwrap();
         let progress = get_progress(&conn, "i1");

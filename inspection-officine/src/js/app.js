@@ -7,7 +7,7 @@ import { state, isTauri } from './state.js';
 import { invoke } from './api.js';
 import { esc, escAttr, validateInput, validatePassword } from './utils.js';
 import { doLogin, doLogout, afterLogin, goToDashboard, buildTopNav, showForcePasswordChange, doForcePasswordChange, roleLabel } from './auth.js';
-import { loadDashboard, statusLabel, resetDashFilters, quickValidate, deleteInsp } from './dashboard.js';
+import { loadDashboard, statusLabel, resetDashFilters, quickValidate, deleteInsp, viewReport, exportAllInspCSV } from './dashboard.js';
 import { renderGridSelector, selectGrid, autoCalcCapa } from './grid-selector.js';
 import { createAndStart, openInspection, renderSidebar, renderCriterion } from './inspection.js';
 import { riskParams, skipSection, reactivateSection, setSeverity, setResp, updateObs, nav, updateProgress, setFactor, setFactorJustification, setImmediateDanger, persistRisk } from './responses.js';
@@ -189,6 +189,8 @@ window.openInspection = openInspection;
 window.quickValidate = quickValidate;
 window.deleteInsp = deleteInsp;
 window.resetDashFilters = resetDashFilters;
+window.viewReport = viewReport;
+window.exportAllInspCSV = exportAllInspCSV;
 
 // Grid selector
 window.selectGrid = selectGrid;

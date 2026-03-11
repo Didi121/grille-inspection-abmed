@@ -1,0 +1,141 @@
+/* ═══════════════════ ADMIN PANELS ═══════════════════ */
+.panel {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-l) var(--space-xl);
+  width: 100%;
+}
+
+.panel h2 {
+  margin-bottom: var(--space-l);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.tbl th {
+  text-align: left;
+  padding: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.tbl td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tbl tr:hover td {
+  background: var(--gray-50);
+}
+
+.tbl .mono {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.role-tag {
+  font-size: 11px;
+  padding: 4px 8px;
+  font-weight: 500;
+  text-transform: uppercase;
+  background: var(--gray-100);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.role-admin {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.role-lead_inspector {
+  background: var(--gray-100);
+  color: var(--text-muted);
+}
+
+.role-inspector {
+  background: var(--gray-100);
+  color: var(--text-muted);
+}
+
+.role-viewer {
+  background: var(--gray-100);
+  color: var(--text-muted);
+}
+
+.active-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.active-dot.on {
+  background: var(--accent);
+}
+
+.active-dot.off {
+  background: var(--text-muted);
+}
+
+.action-tag {
+  font-size: 11px;
+  padding: 4px 8px;
+  font-weight: 500;
+  font-family: var(--mono);
+  background: var(--gray-100);
+  color: var(--text-muted);
+}
+
+/* ═══════════════════ MODAL ═══════════════════ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  display: none;
+}
+
+.modal-overlay.visible {
+  display: flex;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: var(--space-l);
+  width: 420px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal h3 {
+  font-size: 18px;
+  font-weight: 500;
+  margin-bottom: var(--space-m);
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--space-s);
+  justify-content: flex-end;
+  margin-top: var(--space-m);
+}

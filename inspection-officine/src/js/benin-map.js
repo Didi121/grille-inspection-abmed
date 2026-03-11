@@ -1,211 +1,263 @@
 // ═══════════════════ CARTE SVG DU BENIN ═══════════════════
-// Carte des 12 departements avec contours affines (simplifies depuis GeoJSON)
-// Viewport SVG : coordonnees projetees lon 0.7-3.9 -> x, lat 6.1-12.5 -> y
+// 12 departements — contours partageant les points de frontiere communs
+// Projection: lon [0.72, 3.86] -> x [8, 292], lat [6.18, 12.50] -> y [588, 8]
+
+// Points de frontiere partages — definis une seule fois pour eviter les trous
+// Nommage: P_XX = point partage entre departements
+const P = {
+  // Cote sud (Ocean Atlantique, ouest -> est)
+  SW:  [0.78, 6.22],  // frontiere Togo-ocean
+  MC1: [1.62, 6.22],  // jonction Mono-Couffo cote
+  MA1: [1.78, 6.22],  // jonction Mono-Atlantique cote
+  AL1: [2.12, 6.22],  // jonction Atlantique-Littoral cote
+  LO1: [2.30, 6.33],  // Littoral ouest
+  LO2: [2.48, 6.33],  // Littoral est
+  OC1: [2.68, 6.22],  // jonction Oueme cote est
+  SE:  [2.80, 6.22],  // frontiere Nigeria-ocean
+
+  // Frontiere Mono-Couffo interne
+  MC2: [1.62, 6.95],
+  // Frontiere Couffo-Zou
+  CZ1: [1.38, 7.08],
+  CZ2: [1.50, 7.55],
+  // Frontiere Mono-Atlantique interne
+  MA2: [1.78, 6.95],
+  // Frontiere Zou-Atlantique
+  ZA1: [2.10, 6.95],
+  // Jonction Zou-Atlantique-Oueme
+  ZAO: [2.32, 6.95],
+  // Frontiere Atlantique-Littoral interne
+  ALL: [2.30, 6.55],
+  ALR: [2.48, 6.55],
+  // Frontiere Oueme-Littoral
+  OL1: [2.48, 6.55],
+  // Frontiere Oueme-Plateau
+  OP1: [2.68, 6.95],
+  OP2: [2.80, 6.95],
+  // Frontiere Zou-Plateau
+  ZP1: [2.42, 7.55],
+  // Frontiere Zou-Collines
+  ZC1: [1.55, 7.65],
+  ZC2: [2.42, 7.65],
+  // Frontiere Couffo-Collines
+  CC1: [1.38, 7.55],
+  // Frontiere Plateau-Collines
+  PC1: [2.70, 7.65],
+  PC2: [2.80, 7.65],
+  // Frontiere Collines-Donga
+  CD1: [1.38, 8.82],
+  CD2: [2.05, 8.82],
+  // Frontiere Collines-Borgou
+  CB1: [2.05, 8.82],
+  CB2: [2.80, 8.82],
+  // Frontiere Plateau-Borgou
+  PB1: [2.80, 7.65],
+  // Frontiere Donga-Atacora
+  DA1: [0.78, 9.90],
+  DA2: [1.38, 9.90],
+  // Frontiere Donga-Borgou
+  DB1: [2.05, 8.82],
+  DB2: [2.05, 10.00],
+  // Frontiere Atacora-Borgou
+  AB1: [2.05, 10.00],
+  AB2: [2.05, 11.38],
+  // Frontiere Atacora-Alibori
+  AA1: [2.05, 11.38],
+  // Frontiere Borgou-Alibori
+  BA1: [2.05, 11.38],
+  BA2: [3.40, 11.38],
+  // Coins extremes
+  NW:  [0.78, 12.42],  // coin nord-ouest (Atacora-Burkina)
+  NE:  [3.86, 12.42],  // coin nord-est (Alibori-Niger)
+  // Frontiere est (Nigeria)
+  EN1: [3.40, 11.38],
+  EN2: [3.50, 10.50],
+  EN3: [3.50, 9.50],
+  EN4: [3.40, 8.82],
+  EN5: [2.80, 8.82],
+  EN6: [2.80, 7.65],
+  EN7: [2.80, 6.95],
+  // Frontiere ouest (Togo)
+  TW1: [0.78, 12.42],
+  TW2: [0.78, 9.90],
+  TW3: [0.78, 8.82],
+  TW4: [0.78, 7.55],
+  TW5: [0.78, 6.22],
+};
+
+// Coordonnees de chaque departement (partageant les points P)
+const DEPT_COORDS = {
+  'Alibori': [
+    P.AA1, [2.20,11.50], [2.40,11.65], [2.60,11.80], [2.80,11.95],
+    [3.05,12.10], [3.30,12.25], [3.55,12.35], P.NE,
+    [3.86,11.80], [3.70,11.50], P.BA2, P.BA1
+  ],
+  'Atacora': [
+    P.TW1, P.NW, [1.10,12.30], [1.40,12.15], [1.70,11.90], [1.85,11.65], P.AA1,
+    P.AB2, P.AB1, P.DA2, P.DA1, P.TW2,
+    [0.78,10.50], [0.78,11.00], [0.78,11.50], [0.78,12.00]
+  ],
+  'Borgou': [
+    P.AB2, P.BA1, P.BA2, P.EN1,
+    [3.50,11.00], P.EN2, P.EN3, [3.45,9.00], P.EN4,
+    P.CB2, P.CB1, P.DB1, P.DB2, P.AB1
+  ],
+  'Donga': [
+    P.DA1, P.DA2, [1.55,9.80], [1.80,9.60], P.DB2, P.DB1, P.CD2,
+    P.CD1, [1.15,8.90], [1.00,9.05], [0.88,9.25], [0.80,9.50],
+    P.TW3, [0.78,9.30], P.TW2
+  ],
+  'Collines': [
+    P.CD1, P.CD2, P.CB1, P.CB2, P.EN5,
+    P.PC2, P.PC1, P.ZC2, P.ZC1,
+    P.CC1, [1.20,8.40], [1.15,8.10], [1.20,7.80], P.CZ2
+  ],
+  'Zou': [
+    P.CZ2, [1.55,7.55], P.ZC1, P.ZC2, P.ZP1,
+    [2.38,7.35], [2.30,7.12], P.ZAO, P.ZA1, P.MA2,
+    [1.72,6.88], [1.60,6.92], [1.50,6.98], P.CZ1
+  ],
+  'Plateau': [
+    P.ZP1, P.ZC2, P.PC1, P.PC2, P.EN6,
+    P.OP2, P.OP1, [2.55,6.85], [2.45,7.00], P.ZAO,
+    [2.38,7.35], P.ZP1
+  ],
+  'Oueme': [
+    P.OL1, P.ALR, P.LO2, [2.55,6.30], P.OC1, P.SE,
+    P.EN7, P.OP2, P.OP1, [2.55,6.85], [2.50,6.70], P.OL1
+  ],
+  'Littoral': [
+    P.LO1, P.AL1, [2.22,6.28], [2.35,6.25], [2.48,6.28], P.LO2,
+    P.ALR, P.ALL, [2.38,6.45], P.LO1
+  ],
+  'Atlantique': [
+    P.MA1, [1.90,6.28], P.AL1, P.LO1, P.ALL, P.ALR, P.OL1,
+    [2.42,6.65], P.ZAO, P.ZA1, P.MA2, [1.82,6.80],
+    [1.78,6.60], [1.78,6.40], P.MA1
+  ],
+  'Mono': [
+    P.SW, P.MC1, P.MC2, P.MA2, P.ZA1,
+    [1.98,6.80], [1.82,6.80], P.MA2,
+    [1.78,6.60], [1.78,6.40], P.MA1,
+    [1.72,6.28], [1.62,6.25], P.MC1, P.SW
+  ],
+  'Couffo': [
+    P.TW4, P.TW5, P.SW, P.MC1, P.MC2,
+    [1.55,6.95], P.CZ1, P.CZ2, P.CC1,
+    [1.20,8.00], [1.10,7.60], [0.95,7.30], [0.82,7.10], P.TW4
+  ]
+};
 
 function lonLatToSVG(lon, lat) {
-  const x = 10 + (lon - 0.7) * (280 / 3.2);
-  const y = 590 - (lat - 6.1) * (580 / 6.4);
+  const x = 8 + (lon - 0.72) * (284 / 3.14);
+  const y = 588 - (lat - 6.18) * (580 / 6.32);
   return [x.toFixed(1), y.toFixed(1)];
 }
 
-function coordsToPath(coords) {
+function buildPath(coords) {
   return coords.map((p, i) => {
     const [x, y] = lonLatToSVG(p[0], p[1]);
     return (i === 0 ? 'M' : 'L') + x + ',' + y;
   }).join(' ') + ' Z';
 }
 
-// Contours affines des 12 departements (lon, lat) — traces depuis frontières officielles
-const DEPT_PATHS = {
-  'Alibori': coordsToPath([
-    [1.63,11.40],[1.78,11.20],[2.00,11.15],[2.20,11.05],[2.38,10.95],
-    [2.60,11.00],[2.80,11.05],[3.10,11.10],[3.30,11.20],[3.40,11.45],
-    [3.42,11.70],[3.40,11.88],[3.30,12.00],[3.20,12.18],[3.05,12.30],
-    [2.80,12.40],[2.55,12.35],[2.35,12.25],[2.10,12.10],[1.95,11.95],
-    [1.80,11.80],[1.65,11.65],[1.63,11.40]
-  ]),
-  'Atacora': coordsToPath([
-    [0.78,10.00],[0.90,9.95],[1.05,9.90],[1.20,9.85],[1.38,9.90],
-    [1.55,10.00],[1.70,10.15],[1.78,10.30],[1.80,10.50],[1.78,10.70],
-    [1.78,10.90],[1.78,11.10],[1.78,11.20],[1.63,11.40],[1.50,11.30],
-    [1.35,11.15],[1.18,11.05],[1.00,10.95],[0.85,10.85],[0.78,10.70],
-    [0.76,10.50],[0.76,10.30],[0.78,10.00]
-  ]),
-  'Borgou': coordsToPath([
-    [2.00,11.15],[1.78,11.20],[1.78,11.10],[1.78,10.90],[1.78,10.70],
-    [1.78,10.50],[1.78,10.30],[1.80,10.10],[1.85,9.90],[1.90,9.70],
-    [1.95,9.50],[2.00,9.30],[2.05,9.10],[2.15,8.95],[2.30,8.85],
-    [2.50,8.80],[2.70,8.82],[2.90,8.90],[3.10,9.00],[3.25,9.15],
-    [3.35,9.30],[3.40,9.50],[3.42,9.75],[3.42,10.00],[3.42,10.25],
-    [3.40,10.50],[3.38,10.75],[3.35,10.95],[3.30,11.20],[3.10,11.10],
-    [2.80,11.05],[2.60,11.00],[2.38,10.95],[2.20,11.05],[2.00,11.15]
-  ]),
-  'Donga': coordsToPath([
-    [1.20,9.85],[1.05,9.90],[0.90,9.95],[0.78,10.00],[0.76,9.80],
-    [0.80,9.60],[0.85,9.40],[0.92,9.22],[1.00,9.10],[1.12,9.00],
-    [1.25,8.92],[1.40,8.85],[1.55,8.82],[1.70,8.82],[1.85,8.85],
-    [1.95,8.92],[2.05,9.05],[2.05,9.10],[2.00,9.30],[1.95,9.50],
-    [1.90,9.70],[1.85,9.90],[1.78,10.05],[1.70,10.15],[1.55,10.00],
-    [1.38,9.90],[1.20,9.85]
-  ]),
-  'Collines': coordsToPath([
-    [1.55,8.82],[1.40,8.85],[1.25,8.80],[1.15,8.70],[1.10,8.55],
-    [1.12,8.40],[1.18,8.22],[1.25,8.05],[1.35,7.90],[1.45,7.78],
-    [1.55,7.68],[1.68,7.60],[1.80,7.55],[1.95,7.50],[2.10,7.48],
-    [2.25,7.50],[2.40,7.55],[2.55,7.65],[2.65,7.75],[2.72,7.90],
-    [2.75,8.05],[2.75,8.25],[2.72,8.45],[2.70,8.60],[2.65,8.72],
-    [2.50,8.80],[2.30,8.85],[2.15,8.95],[2.05,9.05],[1.95,8.92],
-    [1.85,8.85],[1.70,8.82],[1.55,8.82]
-  ]),
-  'Zou': coordsToPath([
-    [1.68,7.60],[1.55,7.68],[1.45,7.60],[1.38,7.48],[1.35,7.35],
-    [1.38,7.20],[1.42,7.08],[1.50,6.95],[1.60,6.88],[1.72,6.82],
-    [1.85,6.82],[1.98,6.85],[2.10,6.90],[2.22,6.98],[2.30,7.08],
-    [2.35,7.20],[2.38,7.32],[2.40,7.45],[2.40,7.55],[2.25,7.50],
-    [2.10,7.48],[1.95,7.50],[1.80,7.55],[1.68,7.60]
-  ]),
-  'Plateau': coordsToPath([
-    [2.40,7.55],[2.40,7.45],[2.38,7.32],[2.35,7.20],[2.38,7.08],
-    [2.42,6.98],[2.50,6.88],[2.58,6.82],[2.68,6.78],[2.78,6.78],
-    [2.85,6.82],[2.82,7.00],[2.78,7.18],[2.75,7.35],[2.75,7.55],
-    [2.75,7.75],[2.72,7.90],[2.65,7.75],[2.55,7.65],[2.40,7.55]
-  ]),
-  'Oueme': coordsToPath([
-    [2.42,6.98],[2.38,6.85],[2.40,6.72],[2.42,6.60],[2.45,6.48],
-    [2.50,6.38],[2.58,6.35],[2.68,6.35],[2.78,6.38],[2.85,6.45],
-    [2.85,6.58],[2.85,6.70],[2.85,6.82],[2.78,6.78],[2.68,6.78],
-    [2.58,6.82],[2.50,6.88],[2.42,6.98]
-  ]),
-  'Littoral': coordsToPath([
-    [2.30,6.38],[2.38,6.33],[2.48,6.30],[2.50,6.38],[2.45,6.48],
-    [2.42,6.55],[2.38,6.48],[2.32,6.42],[2.30,6.38]
-  ]),
-  'Atlantique': coordsToPath([
-    [1.98,6.85],[1.85,6.82],[1.82,6.72],[1.85,6.60],[1.90,6.48],
-    [1.98,6.40],[2.08,6.35],[2.18,6.33],[2.30,6.38],[2.32,6.42],
-    [2.38,6.48],[2.42,6.55],[2.42,6.60],[2.40,6.72],[2.38,6.85],
-    [2.30,7.08],[2.22,6.98],[2.10,6.90],[1.98,6.85]
-  ]),
-  'Mono': coordsToPath([
-    [1.60,6.88],[1.50,6.82],[1.42,6.72],[1.40,6.60],[1.42,6.48],
-    [1.50,6.38],[1.60,6.30],[1.72,6.25],[1.85,6.25],[1.92,6.30],
-    [1.98,6.40],[1.90,6.48],[1.85,6.60],[1.82,6.72],[1.85,6.82],
-    [1.72,6.82],[1.60,6.88]
-  ]),
-  'Couffo': coordsToPath([
-    [1.50,6.95],[1.42,7.08],[1.38,7.20],[1.35,7.35],[1.38,7.48],
-    [1.25,7.42],[1.15,7.32],[1.08,7.20],[1.05,7.05],[1.08,6.92],
-    [1.15,6.82],[1.25,6.75],[1.35,6.72],[1.42,6.72],[1.50,6.82],
-    [1.50,6.95]
-  ])
-};
-
-// Centres pour les labels (lon, lat)
+// Centres pour labels
 const DEPT_CENTERS = {
-  'Alibori': [2.55, 11.70],
-  'Atacora': [1.20, 10.55],
-  'Borgou': [2.70, 10.05],
-  'Donga': [1.35, 9.40],
-  'Collines': [2.00, 8.20],
-  'Zou': [1.90, 7.20],
-  'Plateau': [2.62, 7.30],
-  'Oueme': [2.65, 6.65],
-  'Atlantique': [2.15, 6.60],
-  'Littoral': [2.40, 6.38],
-  'Mono': [1.68, 6.55],
-  'Couffo': [1.22, 7.05]
+  'Alibori':    [2.75, 11.85],
+  'Atacora':    [1.30, 10.90],
+  'Borgou':     [2.80, 10.10],
+  'Donga':      [1.40, 9.35],
+  'Collines':   [2.00, 8.15],
+  'Zou':        [1.95, 7.15],
+  'Plateau':    [2.62, 7.25],
+  'Oueme':      [2.68, 6.60],
+  'Atlantique': [2.12, 6.55],
+  'Littoral':   [2.35, 6.38],
+  'Mono':       [1.55, 6.55],
+  'Couffo':     [1.05, 7.15]
 };
 
 /**
- * Genere le SVG de la carte du Benin avec coloration par donnees
- * @param {Object} deptData - { "Alibori": { count: 5, color: "#dc2626", tooltip: "..." }, ... }
- * @returns {string} HTML du SVG
+ * Genere le SVG de la carte du Benin
  */
 export function renderBeninMap(deptData = {}) {
-  const depts = Object.keys(DEPT_PATHS);
   let paths = '';
   let labels = '';
 
-  depts.forEach(dept => {
+  Object.keys(DEPT_COORDS).forEach(dept => {
     const data = deptData[dept] || {};
     const fillColor = data.color || '#e5e7eb';
     const count = data.count || 0;
-    const tooltip = data.tooltip || `${dept}: ${count} inspection(s)`;
-    const escapedTooltip = tooltip.replace(/'/g, "\\'");
+    const tooltip = (data.tooltip || `${dept}: ${count} inspection(s)`).replace(/'/g, "\\'");
+    const d = buildPath(DEPT_COORDS[dept]);
 
-    paths += `<path d="${DEPT_PATHS[dept]}"
-      fill="${fillColor}" stroke="#374151" stroke-width="0.8"
-      style="cursor:pointer;transition:all 0.2s;opacity:0.9"
-      onmouseover="this.style.opacity='1';this.style.strokeWidth='2';this.style.stroke='#111827';document.getElementById('map-tooltip').textContent='${escapedTooltip}';document.getElementById('map-tooltip').style.display='block'"
-      onmouseout="this.style.opacity='0.9';this.style.strokeWidth='0.8';this.style.stroke='#374151';document.getElementById('map-tooltip').style.display='none'">
-      <title>${tooltip}</title>
-    </path>`;
+    paths += `<path d="${d}" fill="${fillColor}" stroke="#374151" stroke-width="0.8" stroke-linejoin="round"
+      style="cursor:pointer;transition:all 0.2s;opacity:0.92"
+      onmouseover="this.style.opacity='1';this.style.strokeWidth='1.8';this.style.stroke='#0f172a';var t=document.getElementById('map-tooltip');t.textContent='${tooltip}';t.style.display='block'"
+      onmouseout="this.style.opacity='0.92';this.style.strokeWidth='0.8';this.style.stroke='#374151';document.getElementById('map-tooltip').style.display='none'">
+      <title>${data.tooltip || `${dept}: ${count} inspection(s)`}</title></path>`;
 
     const center = DEPT_CENTERS[dept];
     if (center) {
       const [cx, cy] = lonLatToSVG(center[0], center[1]);
-      const isSmall = dept === 'Littoral';
-      const fontSize = isSmall ? '6.5' : dept.length > 7 ? '8' : '9';
+      const isSmall = (dept === 'Littoral');
+      const fs = isSmall ? 6 : dept.length > 8 ? 7.5 : 8.5;
       const label = isSmall ? 'Lit.' : dept;
       labels += `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
-        font-size="${fontSize}" font-family="'DM Sans',system-ui,sans-serif" font-weight="600"
-        fill="#1e293b" pointer-events="none" style="text-shadow:0 0 3px rgba(255,255,255,0.8)">${label}</text>`;
+        font-size="${fs}" font-weight="600" fill="#1e293b" pointer-events="none"
+        font-family="'DM Sans',system-ui,sans-serif"
+        style="text-shadow:0 0 2px #fff,0 0 4px #fff">${label}</text>`;
       if (count > 0) {
-        labels += `<circle cx="${cx}" cy="${parseFloat(cy) + 13}" r="8" fill="${fillColor}" stroke="#374151" stroke-width="0.5" opacity="0.9"/>`;
-        labels += `<text x="${cx}" y="${parseFloat(cy) + 13}" text-anchor="middle" dominant-baseline="central"
-          font-size="7.5" font-family="'JetBrains Mono',monospace" font-weight="700"
-          fill="#1e293b" pointer-events="none">${count}</text>`;
+        const [bx, by] = [cx, parseFloat(cy) + (isSmall ? 9 : 12)];
+        labels += `<circle cx="${bx}" cy="${by}" r="8" fill="${fillColor}" stroke="#374151" stroke-width="0.5" opacity="0.95"/>`;
+        labels += `<text x="${bx}" y="${by}" text-anchor="middle" dominant-baseline="central"
+          font-size="7" font-weight="700" fill="#1e293b" pointer-events="none"
+          font-family="'JetBrains Mono',monospace">${count}</text>`;
       }
     }
   });
 
   return `
-    <div style="position:relative">
-      <svg viewBox="0 0 300 600" width="100%" style="max-width:300px;height:auto;display:block;margin:0 auto">
-        <!-- Contour national -->
-        <rect x="0" y="0" width="300" height="600" fill="none"/>
-        <!-- Ocean / fond -->
-        <rect x="0" y="560" width="300" height="40" fill="#dbeafe" opacity="0.3"/>
-        <text x="150" y="585" text-anchor="middle" font-size="8" fill="#93c5fd" font-style="italic"
-          font-family="'DM Sans',system-ui,sans-serif">Ocean Atlantique</text>
-        <!-- Pays voisins -->
-        <text x="15" y="300" font-size="7" fill="#d1d5db" font-family="'DM Sans',system-ui,sans-serif"
-          transform="rotate(-90, 15, 300)">TOGO</text>
-        <text x="285" y="300" font-size="7" fill="#d1d5db" font-family="'DM Sans',system-ui,sans-serif"
-          transform="rotate(90, 285, 300)">NIGERIA</text>
-        <text x="150" y="22" text-anchor="middle" font-size="7" fill="#d1d5db"
-          font-family="'DM Sans',system-ui,sans-serif">BURKINA FASO / NIGER</text>
-        <!-- Departements -->
-        ${paths}
-        <!-- Labels -->
-        ${labels}
-        <!-- Titre -->
-        <text x="150" y="10" text-anchor="middle" font-size="11" font-family="'DM Sans',system-ui,sans-serif"
-          font-weight="700" fill="#0f172a" letter-spacing="0.1em">BENIN</text>
-      </svg>
-      <div id="map-tooltip" style="display:none;position:absolute;bottom:8px;left:50%;transform:translateX(-50%);
-        background:#1e293b;color:#f8fafc;padding:6px 14px;font-size:12px;border-radius:4px;
-        font-family:'DM Sans',system-ui,sans-serif;white-space:nowrap;pointer-events:none;z-index:10;
-        box-shadow:0 2px 8px rgba(0,0,0,0.15)"></div>
-    </div>
-  `;
+  <div style="position:relative">
+    <svg viewBox="0 0 300 600" width="100%" style="max-width:300px;height:auto;display:block;margin:0 auto"
+      xmlns="http://www.w3.org/2000/svg">
+      <!-- Fond ocean -->
+      <rect x="0" y="565" width="300" height="35" fill="#dbeafe" opacity="0.4" rx="0"/>
+      <text x="150" y="585" text-anchor="middle" font-size="7.5" fill="#60a5fa" font-style="italic"
+        font-family="'DM Sans',system-ui,sans-serif" opacity="0.7">Golfe de Guinee</text>
+      <!-- Pays voisins -->
+      <text x="4" y="300" font-size="7" fill="#cbd5e1" font-family="'DM Sans',system-ui,sans-serif"
+        writing-mode="tb" letter-spacing="2">T O G O</text>
+      <text x="296" y="250" font-size="7" fill="#cbd5e1" font-family="'DM Sans',system-ui,sans-serif"
+        writing-mode="tb" letter-spacing="2">N I G E R I A</text>
+      <text x="100" y="18" text-anchor="middle" font-size="7" fill="#cbd5e1"
+        font-family="'DM Sans',system-ui,sans-serif" letter-spacing="1">BURKINA FASO</text>
+      <text x="230" y="18" text-anchor="middle" font-size="7" fill="#cbd5e1"
+        font-family="'DM Sans',system-ui,sans-serif" letter-spacing="1">NIGER</text>
+      <!-- Departements -->
+      <g id="depts">${paths}</g>
+      <!-- Labels -->
+      <g id="labels">${labels}</g>
+      <!-- Titre -->
+      <text x="150" y="8" text-anchor="middle" font-size="10" font-weight="700" fill="#0f172a"
+        font-family="'DM Sans',system-ui,sans-serif" letter-spacing="0.15em">REPUBLIQUE DU BENIN</text>
+    </svg>
+    <div id="map-tooltip" style="display:none;position:absolute;bottom:6px;left:50%;transform:translateX(-50%);
+      background:#1e293b;color:#f8fafc;padding:5px 12px;font-size:12px;border-radius:4px;
+      font-family:'DM Sans',system-ui,sans-serif;white-space:nowrap;pointer-events:none;z-index:10;
+      box-shadow:0 2px 8px rgba(0,0,0,0.2)"></div>
+  </div>`;
 }
 
-/**
- * Palette de couleurs selon le nombre d'inspections (heat map)
- */
 export function getHeatColor(count, maxCount) {
   if (count === 0) return '#f3f4f6';
   const ratio = maxCount > 0 ? count / maxCount : 0;
-  if (ratio >= 0.75) return '#dc2626';
+  if (ratio >= 0.75) return '#ef4444';
   if (ratio >= 0.5) return '#f97316';
   if (ratio >= 0.25) return '#3b82f6';
   return '#93c5fd';
 }
 
-/**
- * Palette selon le niveau de risque
- */
 export function getRiskColor(riskLevel) {
   if (riskLevel >= 4) return '#7f1d1d';
   if (riskLevel >= 3) return '#dc2626';

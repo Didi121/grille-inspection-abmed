@@ -61,7 +61,7 @@ export async function loadDashboard() {
         const g = gridMap[i.grid_id]||{icon:'📋',name:i.grid_id};
         const shortId = i.id.substring(0,6);
         const canEdit = role==='admin' || (isInspector && i.created_by===state.session.user.id && ['draft','in_progress'].includes(i.status));
-        const canDelete = role==='admin';
+        const canDelete = role==='admin' || isLead;
         const canValidate = (role==='admin'||isLead) && i.status==='completed';
         // Lead/viewer: ouvrir en lecture seule (rapport direct)
         const openAction = (isLead || isViewer) ? `viewReport('${i.id}')` : `openInspection('${i.id}')`;

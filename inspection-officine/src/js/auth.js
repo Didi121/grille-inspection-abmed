@@ -83,6 +83,7 @@ export function buildTopNav() {
     <button class="nav-btn" data-s="dash" onclick="goToDashboard()">Inspections</button>
     ${isAdmin?'<button class="nav-btn" data-s="grids" onclick="showScreen(\'grids\');renderGridsAdmin()">Grilles</button>':''}
     ${isAdmin?'<button class="nav-btn" data-s="users" onclick="showScreen(\'users\');renderUsers()">Utilisateurs</button>':''}
+    ${isAdmin||isLead?'<button class="nav-btn" data-s="analytics" onclick="showScreen(\'analytics\')">Analytique</button>':''}
     ${isAdmin||isLead?'<button class="nav-btn" data-s="audit" onclick="showScreen(\'audit\');renderAudit()">Audit</button>':''}
   `;
   nav.style.display='flex';

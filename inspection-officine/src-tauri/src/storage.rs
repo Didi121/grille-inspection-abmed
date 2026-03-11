@@ -577,4 +577,65 @@ mod tests {
         let db = create_test_db();
         assert!(set_status(&db, "nonexistent", "in_progress", None).is_err());
     }
+
+    // ── Tests supplémentaires pour couverture ──
+
+    #[test]
+    fn test_list_inspections_filter_by_status() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        insert_inspection(&db, "i2", "draft");
+        insert_inspection(&db, "i3", "in_progress");
+        insert_inspection(&db, "i4", "completed");
+
+        let drafts = list_inspections(&db, None, Some("draft")).unwrap();
+        assert_eq!(drafts.len(), 2);
+        assert!(drafts.iter().all(|i| i.status == "draft"));
+
+        let in_progress = list_inspections(&db, None, Some("in_progress")).unwrap();
+        assert_eq!(in_progress.len(), 1);
+        assert_eq!(in_progress[0].status, "in_progress");
+
+        let completed = list_inspections(&db, None, Some("completed")).unwrap();
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].status, "completed");
+
+        let validated = list_inspections(&db, None, Some("validated")).unwrap();
+        assert_eq!(validated.len(), 0);
+    }
+
+    #[test]
+    fn test_get_responses_empty() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+        let resp = get_responses(&db, "i1").unwrap();
+        assert!(resp.is_empty());
+    }
+
+    #[test]
+    fn test_save_response_update() {
+        let db = create_test_db();
+        insert_inspection(&db, "i1", "draft");
+
+        // First save: conforme with no severity
+        save_response(&db, "i1", 10, Some(true), "Initial observation", "u1", None, None, None, false).unwrap();
+        let resp = get_responses(&db, "i1").unwrap();
+        assert_eq!(resp.len(), 1);
+        assert_eq!(resp[0].conforme, Some(true));
+        assert_eq!(resp[0].observation, "Initial observation");
+        assert_eq!(resp[0].severity, None);
+        assert!(!resp[0].immediate_danger);
+
+        // Second save (update): non-conforme with severity and immediate danger
+        save_response(&db, "i1", 10, Some(false), "Updated observation", "u1",
+            Some("critique"), Some("aggravant"), Some("Justification"), true).unwrap();
+        let resp = get_responses(&db, "i1").unwrap();
+        assert_eq!(resp.len(), 1);
+        assert_eq!(resp[0].conforme, Some(false));
+        assert_eq!(resp[0].observation, "Updated observation");
+        assert_eq!(resp[0].severity.as_deref(), Some("critique"));
+        assert_eq!(resp[0].factor.as_deref(), Some("aggravant"));
+        assert_eq!(resp[0].factor_justification.as_deref(), Some("Justification"));
+        assert!(resp[0].immediate_danger);
+    }
 }

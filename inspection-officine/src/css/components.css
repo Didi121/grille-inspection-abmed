@@ -564,6 +564,46 @@ input:required:invalid:not(:placeholder-shown), input:required:invalid:not([valu
 .btn-report-anytime:hover { background: var(--accent); }
 @media print { .btn-report-anytime { display: none; } }
 
+/* ═══════════════════ TOAST NOTIFICATIONS ═══════════════════ */
+.toast-container {
+  position: fixed; bottom: 20px; right: 20px; z-index: 200;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.toast {
+  padding: 10px 16px; background: var(--text); color: var(--white);
+  font-size: 13px; font-family: var(--font); border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: toastIn 0.3s ease;
+  display: flex; align-items: center; gap: 8px; max-width: 360px;
+}
+.toast.success { background: #16a34a; }
+.toast.error { background: #dc2626; }
+.toast.warning { background: #d97706; }
+@keyframes toastIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+
+/* ═══════════════════ KEYBOARD HINTS ═══════════════════ */
+.kbd-hints {
+  position: fixed; bottom: 12px; left: 12px; z-index: 50;
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 8px 12px; font-size: 11px; color: var(--text-muted);
+  display: flex; gap: 12px; flex-wrap: wrap; opacity: 0.7;
+}
+.kbd-hints:hover { opacity: 1; }
+.kbd { display: inline-block; background: var(--gray-100); border: 1px solid var(--border);
+  padding: 2px 6px; font-family: var(--mono); font-size: 10px; min-width: 18px;
+  text-align: center; font-weight: 600; }
+@media (max-width: 768px) { .kbd-hints { display: none; } }
+@media print { .kbd-hints { display: none; } }
+
+/* ═══════════════════ MOBILE SIDEBAR TOGGLE ═══════════════════ */
+.sidebar-toggle {
+  display: none; position: fixed; bottom: 70px; right: 16px; z-index: 50;
+  width: 44px; height: 44px; border-radius: 50%; background: var(--text); color: var(--white);
+  border: none; font-size: 20px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  align-items: center; justify-content: center;
+}
+@media (max-width: 768px) { .sidebar-toggle { display: flex; } }
+@media print { .sidebar-toggle { display: none; } }
+
 /* ═══════════════════ OBSERVATIONS ═══════════════════ */
 .obs-lbl {
   font-size: 12px;

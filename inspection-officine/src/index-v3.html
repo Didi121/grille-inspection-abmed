@@ -64,6 +64,8 @@
         <input type="text" id="dSearch" placeholder="Rechercher un établissement..."/>
         <select id="dTypeFilter"><option value="">Type d'inspection</option><option>Routine</option><option>Enquête</option><option>Plaintes/réclamations</option><option>À la demande</option><option>Pré-ouverture</option><option>Suivi</option><option>Visite de conformité</option></select>
         <select id="dStatusFilter"><option value="">Statut</option><option value="draft">Brouillon</option><option value="in_progress">En cours</option><option value="completed">Terminée</option><option value="validated">Validée</option><option value="archived">Archivée</option></select>
+        <select id="dDeptFilter"><option value="">Département</option></select>
+        <select id="dCommuneFilter"><option value="">Commune</option></select>
         <button class="btn-sm" onclick="resetDashFilters()">Réinitialiser</button>
       </div>
       <div style="background:var(--surface);border:1px solid var(--border)">
@@ -102,8 +104,8 @@
         <div class="field"><label>Type d'inspection <span class="required">*</span></label><select id="mType" required><option>Routine</option><option>Enquête</option><option>Plaintes/réclamations</option><option>À la demande</option><option>Pré-ouverture</option><option>Suivi</option><option>Visite de conformité</option><option>Autre</option></select></div>
         <div class="field full"><label>Établissement <span class="required">*</span></label><input id="mEstab" placeholder="Ex: Pharmacie du Carrefour" required/></div>
         <div class="field"><label>Responsable / Promoteur</label><input id="mResp" placeholder="Dr. ..."/></div>
-        <div class="field"><label>Commune <span class="required">*</span></label><input id="mCommune" placeholder="Cotonou" required/></div>
-        <div class="field"><label>Département <span class="required">*</span></label><input id="mDept" placeholder="Littoral" required/></div>
+        <div class="field"><label>Département <span class="required">*</span></label><select id="mDept" required onchange="onDeptChange()"><option value="">— Sélectionner —</option></select></div>
+        <div class="field"><label>Commune <span class="required">*</span></label><select id="mCommune" required><option value="">— Sélectionner un département d'abord —</option></select></div>
         <div class="field"><label>Début de mission <span class="required">*</span></label><input type="date" id="mPeriodeDu" required/></div>
         <div class="field"><label>Fin de mission <span class="required">*</span></label><input type="date" id="mPeriodeAu" required/></div>
         <div class="field"><label>Inspecteur Principal <span class="required">*</span></label><input id="mLead" placeholder="Dr. ..." required/></div>
@@ -145,6 +147,9 @@
 
   <!-- GRILLES ADMIN -->
   <div class="screen" id="s-grids"><div class="panel" id="gridsPanel"></div></div>
+
+  <!-- ANALYTICS -->
+  <div class="screen" id="s-analytics"><div class="panel" id="analyticsPanel"></div></div>
 </div>
 
 <!-- Modal -->

@@ -198,4 +198,104 @@ mod tests {
         assert!(diff.removed_sections.is_empty());
         assert!(diff.modified_criteria.is_empty());
     }
+
+    #[test]
+    fn test_compare_grids_added_section() {
+        let grid1 = GridInfo {
+            id: "g1".into(), name: "Test".into(), code: "T".into(),
+            version: "1.0".into(), description: "".into(), icon: "".into(), color: "".into(),
+            sections: vec![Section {
+                id: 1, title: "S1".into(),
+                items: vec![Criterion { id: 1, reference: "R1".into(), description: "D1".into(), pre_opening: false }],
+            }],
+        };
+        let grid2 = GridInfo {
+            id: "g1".into(), name: "Test".into(), code: "T".into(),
+            version: "2.0".into(), description: "".into(), icon: "".into(), color: "".into(),
+            sections: vec![
+                Section {
+                    id: 1, title: "S1".into(),
+                    items: vec![Criterion { id: 1, reference: "R1".into(), description: "D1".into(), pre_opening: false }],
+                },
+                Section {
+                    id: 2, title: "S2 Nouvelle".into(),
+                    items: vec![Criterion { id: 10, reference: "R10".into(), description: "D10".into(), pre_opening: true }],
+                },
+            ],
+        };
+        let diff = compare_grids(&grid1, &grid2);
+        assert_eq!(diff.added_sections.len(), 1);
+        assert_eq!(diff.added_sections[0].id, 2);
+        assert_eq!(diff.added_sections[0].title, "S2 Nouvelle");
+        assert!(diff.removed_sections.is_empty());
+        assert!(diff.modified_sections.is_empty());
+        // The criterion in the new section should also be added
+        assert_eq!(diff.added_criteria.len(), 1);
+        assert_eq!(diff.added_criteria[0].id, 10);
+    }
+
+    #[test]
+    fn test_compare_grids_modified_criterion() {
+        let grid1 = GridInfo {
+            id: "g1".into(), name: "Test".into(), code: "T".into(),
+            version: "1.0".into(), description: "".into(), icon: "".into(), color: "".into(),
+            sections: vec![Section {
+                id: 1, title: "S1".into(),
+                items: vec![Criterion { id: 1, reference: "R1".into(), description: "Old description".into(), pre_opening: false }],
+            }],
+        };
+        let grid2 = GridInfo {
+            id: "g1".into(), name: "Test".into(), code: "T".into(),
+            version: "2.0".into(), description: "".into(), icon: "".into(), color: "".into(),
+            sections: vec![Section {
+                id: 1, title: "S1".into(),
+                items: vec![Criterion { id: 1, reference: "R1".into(), description: "New description".into(), pre_opening: false }],
+            }],
+        };
+        let diff = compare_grids(&grid1, &grid2);
+        assert!(diff.added_sections.is_empty());
+        assert!(diff.removed_sections.is_empty());
+        assert!(diff.added_criteria.is_empty());
+        assert!(diff.removed_criteria.is_empty());
+        assert_eq!(diff.modified_criteria.len(), 1);
+        assert_eq!(diff.modified_criteria[0].id, 1);
+        assert_eq!(diff.modified_criteria[0].description, "New description");
+        assert_eq!(diff.modified_criteria[0].old_description.as_deref(), Some("Old description"));
+        // Reference didn't change, so old_reference should be None
+        assert_eq!(diff.modified_criteria[0].old_reference, None);
+    }
+
+    #[test]
+    fn test_compare_grids_removed_criterion() {
+        let grid1 = GridInfo {
+            id: "g1".into(), name: "Test".into(), code: "T".into(),
+            version: "1.0".into(), description: "".into(), icon: "".into(), color: "".into(),
+            sections: vec![Section {
+                id: 1, title: "S1".into(),
+                items: vec![
+                    Criterion { id: 1, reference: "R1".into(), description: "D1".into(), pre_opening: false },
+                    Criterion { id: 2, reference: "R2".into(), description: "D2".into(), pre_opening: true },
+                ],
+            }],
+        };
+        let grid2 = GridInfo {
+            id: "g1".into(), name: "Test".into(), code: "T".into(),
+            version: "2.0".into(), description: "".into(), icon: "".into(), color: "".into(),
+            sections: vec![Section {
+                id: 1, title: "S1".into(),
+                items: vec![
+                    Criterion { id: 1, reference: "R1".into(), description: "D1".into(), pre_opening: false },
+                ],
+            }],
+        };
+        let diff = compare_grids(&grid1, &grid2);
+        assert!(diff.added_sections.is_empty());
+        assert!(diff.removed_sections.is_empty());
+        assert!(diff.added_criteria.is_empty());
+        assert_eq!(diff.removed_criteria.len(), 1);
+        assert_eq!(diff.removed_criteria[0].id, 2);
+        assert_eq!(diff.removed_criteria[0].reference, "R2");
+        assert_eq!(diff.removed_criteria[0].description, "D2");
+        assert!(diff.modified_criteria.is_empty());
+    }
 }

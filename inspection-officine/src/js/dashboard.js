@@ -30,9 +30,13 @@ export async function loadDashboard() {
     const search = document.getElementById('dSearch').value.toLowerCase();
     const typeF = document.getElementById('dTypeFilter').value;
     const statusF = document.getElementById('dStatusFilter').value;
+    const deptF = document.getElementById('dDeptFilter')?.value || '';
+    const communeF = document.getElementById('dCommuneFilter')?.value || '';
     if(search) filtered = filtered.filter(i=>(i.establishment||'').toLowerCase().includes(search));
     if(typeF) filtered = filtered.filter(i=>i.inspection_type===typeF);
     if(statusF) filtered = filtered.filter(i=>i.status===statusF);
+    if(deptF) filtered = filtered.filter(i=>(i.extra_meta?.departement||'')===deptF);
+    if(communeF) filtered = filtered.filter(i=>(i.extra_meta?.commune||'')===communeF);
 
     const tbody = document.getElementById('dashBody');
     const empty = document.getElementById('dashEmpty');
@@ -72,6 +76,10 @@ export function resetDashFilters() {
   document.getElementById('dSearch').value='';
   document.getElementById('dTypeFilter').value='';
   document.getElementById('dStatusFilter').value='';
+  const dDept = document.getElementById('dDeptFilter');
+  const dCommune = document.getElementById('dCommuneFilter');
+  if(dDept) dDept.value='';
+  if(dCommune) { dCommune.innerHTML='<option value="">Commune</option>'; dCommune.value=''; }
   loadDashboard();
 }
 

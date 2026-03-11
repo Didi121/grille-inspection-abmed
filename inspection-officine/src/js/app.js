@@ -15,6 +15,8 @@ import { renderReport, setInspStatus, exportJSON } from './report.js';
 import { renderGridsAdmin, showCreateGridModal, doCreateGrid, openGridEditor, showEditMetaModal, doEditMeta, showAddSectionModal, doAddSection, showEditSectionModal, doEditSection, doDeleteSection, severitySelect, showAddCriterionModal, doAddCriterion, showEditCriterionModal, doEditCriterion, doDeleteCriterion, archiveGrid, duplicateGrid, showGridVersions, rollbackVersion, doExportGrid } from './admin-grids.js';
 import { renderUsers, showCreateUserModal, doCreateUser, showEditUserModal, doEditUser, showChangePwModal, doChangePw, deactivateUser, reactivateUser } from './admin-users.js';
 import { renderAudit, exportAuditCSV } from './audit.js';
+import { renderAnalytics } from './analytics.js';
+import { DEPARTEMENTS, getCommunesByDept } from './benin-data.js';
 
 // ═══════════════════ SCREEN NAVIGATION ═══════════════════
 
@@ -23,11 +25,16 @@ export function showScreen(name) {
   document.getElementById('s-' + name).classList.add('visible');
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.s === name));
   document.getElementById('pStrip').style.display = name === 'inspection' ? 'flex' : 'none';
+  const kbdH = document.getElementById('kbdHints');
+  if (kbdH) kbdH.style.display = name === 'inspection' ? 'flex' : 'none';
+  const sideT = document.getElementById('sideToggle');
+  if (sideT) sideT.style.display = name === 'inspection' ? '' : 'none';
   // Auto-load pour certains écrans
   if (name === 'grid-select') renderGridSelector();
   if (name === 'users') renderUsers();
   if (name === 'audit') renderAudit();
   if (name === 'grids') renderGridsAdmin();
+  if (name === 'analytics') renderAnalytics();
   if (name === 'dash') loadDashboard();
 }
 
@@ -40,6 +47,23 @@ export function openModal(html) {
 
 export function closeModal() {
   document.getElementById('modalOverlay').classList.remove('visible');
+}
+
+// ═══════════════════ TOAST NOTIFICATIONS ═══════════════════
+
+function ensureToastContainer() {
+  let c = document.getElementById('toastContainer');
+  if (!c) { c = document.createElement('div'); c.id = 'toastContainer'; c.className = 'toast-container'; document.body.appendChild(c); }
+  return c;
+}
+
+export function showToast(message, type = 'info', duration = 3000) {
+  const c = ensureToastContainer();
+  const t = document.createElement('div');
+  t.className = 'toast' + (type !== 'info' ? ' ' + type : '');
+  t.textContent = message;
+  c.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateY(20px)'; setTimeout(() => t.remove(), 300); }, duration);
 }
 
 // ═══════════════════ KEYBOARD SHORTCUTS ═══════════════════
@@ -57,12 +81,81 @@ document.addEventListener('keydown', e => {
 
 // ═══════════════════ INIT ═══════════════════
 
+// ═══════════════════ BENIN DROPDOWNS ═══════════════════
+
+function populateDeptSelect(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— Selectionner —</option>';
+  DEPARTEMENTS.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d.nom; opt.textContent = d.nom;
+    if (d.nom === current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function onDeptChange() {
+  const dept = document.getElementById('mDept').value;
+  const communeSel = document.getElementById('mCommune');
+  communeSel.innerHTML = '<option value="">— Selectionner —</option>';
+  if (dept) {
+    getCommunesByDept(dept).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      communeSel.appendChild(opt);
+    });
+  }
+}
+
+function onDashDeptFilterChange() {
+  const dept = document.getElementById('dDeptFilter').value;
+  const communeSel = document.getElementById('dCommuneFilter');
+  communeSel.innerHTML = '<option value="">Commune</option>';
+  if (dept) {
+    getCommunesByDept(dept).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      communeSel.appendChild(opt);
+    });
+  }
+  if (state.session) loadDashboard();
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+  // Initialiser les dropdowns departement
+  populateDeptSelect('mDept');
+  populateDeptSelect('dDeptFilter');
+
   // Attacher les filtres du dashboard
-  ['dSearch', 'dTypeFilter', 'dStatusFilter'].forEach(id => {
+  ['dSearch', 'dTypeFilter', 'dStatusFilter', 'dDeptFilter', 'dCommuneFilter'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => { if (state.session) loadDashboard(); });
   });
+  // Liaison cascadee departement -> commune pour le filtre dashboard
+  const dDeptF = document.getElementById('dDeptFilter');
+  if (dDeptF) dDeptF.addEventListener('change', onDashDeptFilterChange);
+
+  // Aide raccourcis clavier (visible pendant l'inspection)
+  const kbdHints = document.createElement('div');
+  kbdHints.className = 'kbd-hints';
+  kbdHints.id = 'kbdHints';
+  kbdHints.style.display = 'none';
+  kbdHints.innerHTML = '<span><span class="kbd">O</span> Conforme</span><span><span class="kbd">N</span> Non conforme</span><span><span class="kbd">X</span> N/A</span><span><span class="kbd">Espace</span> Reset</span><span><span class="kbd">&larr;</span><span class="kbd">&rarr;</span> Navigation</span>';
+  document.body.appendChild(kbdHints);
+
+  // Bouton sidebar toggle mobile
+  const sideToggle = document.createElement('button');
+  sideToggle.className = 'sidebar-toggle';
+  sideToggle.id = 'sideToggle';
+  sideToggle.style.display = 'none';
+  sideToggle.innerHTML = '&#9776;';
+  sideToggle.onclick = () => {
+    const sb = document.getElementById('secList');
+    if (sb) { sb.style.display = sb.style.display === 'none' ? 'block' : 'none'; }
+  };
+  document.body.appendChild(sideToggle);
 
   // Restaurer la session si elle existe
   try {
@@ -161,3 +254,12 @@ window.reactivateUser = reactivateUser;
 // Audit
 window.renderAudit = renderAudit;
 window.exportAuditCSV = exportAuditCSV;
+
+// Analytics
+window.renderAnalytics = renderAnalytics;
+
+// Benin dropdowns
+window.onDeptChange = onDeptChange;
+
+// Toast / UX
+window.showToast = showToast;

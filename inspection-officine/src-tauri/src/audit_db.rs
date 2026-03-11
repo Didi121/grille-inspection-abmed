@@ -284,3 +284,89 @@ impl AuditDatabase {
             .map_err(|e| format!("Erreur export JSON: {}", e))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_audit_db() -> AuditDatabase {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("
+            CREATE TABLE audit_log (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp       TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                user_id         TEXT,
+                username        TEXT,
+                action          TEXT NOT NULL,
+                entity_type     TEXT,
+                entity_id       TEXT,
+                details         TEXT,
+                before_snapshot TEXT,
+                after_snapshot  TEXT
+            );
+            CREATE INDEX idx_audit_timestamp ON audit_log(timestamp DESC);
+            CREATE INDEX idx_audit_user ON audit_log(user_id);
+            CREATE INDEX idx_audit_action ON audit_log(action);
+            CREATE INDEX idx_audit_entity ON audit_log(entity_type, entity_id);
+        ").unwrap();
+        AuditDatabase { conn: Mutex::new(conn) }
+    }
+
+    fn empty_filter() -> AuditFilter {
+        AuditFilter {
+            user_id: None,
+            action: None,
+            entity_type: None,
+            entity_id: None,
+            from_date: None,
+            to_date: None,
+            limit: None,
+            offset: None,
+        }
+    }
+
+    #[test]
+    fn test_insert_and_query_audit() {
+        let db = create_test_audit_db();
+
+        db.log_user_action("u1", "admin", "create_inspection", "inspection", "insp-1", "Created new inspection");
+
+        let entries = db.query_audit(&empty_filter()).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].user_id.as_deref(), Some("u1"));
+        assert_eq!(entries[0].username.as_deref(), Some("admin"));
+        assert_eq!(entries[0].action, "create_inspection");
+        assert_eq!(entries[0].entity_type.as_deref(), Some("inspection"));
+        assert_eq!(entries[0].entity_id.as_deref(), Some("insp-1"));
+        assert_eq!(entries[0].details.as_deref(), Some("Created new inspection"));
+    }
+
+    #[test]
+    fn test_count_audit() {
+        let db = create_test_audit_db();
+
+        // Insert several entries
+        db.log_action(Some("u1"), Some("alice"), "login", None, None, None);
+        db.log_action(Some("u2"), Some("bob"), "login", None, None, None);
+        db.log_user_action("u1", "alice", "create_inspection", "inspection", "i1", "");
+
+        let total = db.count_audit(&empty_filter()).unwrap();
+        assert_eq!(total, 3);
+
+        // Filter by action
+        let login_filter = AuditFilter {
+            action: Some("login".into()),
+            ..empty_filter()
+        };
+        let login_count = db.count_audit(&login_filter).unwrap();
+        assert_eq!(login_count, 2);
+
+        // Filter by user_id
+        let user_filter = AuditFilter {
+            user_id: Some("u1".into()),
+            ..empty_filter()
+        };
+        let user_count = db.count_audit(&user_filter).unwrap();
+        assert_eq!(user_count, 2);
+    }
+}

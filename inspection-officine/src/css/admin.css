@@ -101,6 +101,40 @@
   color: var(--text-muted);
 }
 
+/* ═══════════════════ ANALYTICS ═══════════════════ */
+#s-analytics .panel { max-width: 1100px; }
+
+.ana-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ana-num { font-size: 28px; font-weight: 700; line-height: 1; }
+.ana-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500; }
+
+.ana-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 20px;
+}
+.ana-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ana-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ana-bar-label { font-size: 13px; min-width: 140px; color: var(--text); }
+.ana-bar-track { flex: 1; height: 8px; background: var(--gray-100); border-radius: 4px; overflow: hidden; }
+.ana-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+.ana-bar-val { font-size: 13px; font-weight: 600; min-width: 30px; text-align: right; }
+
 /* ═══════════════════ MODAL ═══════════════════ */
 .modal-overlay {
   position: fixed;

@@ -11,13 +11,14 @@ import { loadDashboard, statusLabel, resetDashFilters, quickValidate, deleteInsp
 import { renderGridSelector, selectGrid, autoCalcCapa } from './grid-selector.js';
 import { createAndStart, openInspection, renderSidebar, renderCriterion } from './inspection.js';
 import { riskParams, skipSection, reactivateSection, setSeverity, setResp, updateObs, nav, updateProgress, setFactor, setFactorJustification, setImmediateDanger, persistRisk } from './responses.js';
-import { renderReport, setInspStatus, exportJSON, openSuiviModal, autoCalcCapaSuivi, saveSuiviMeta } from './report.js';
+import { renderReport, setInspStatus, exportJSON, openSuiviModal, autoCalcCapaSuivi, saveSuiviMeta, showReportVersions } from './report.js';
 import { searchEstablishments, typeLabel as estabTypeLabel } from './establishments-data.js';
 import { INSPECTORS, searchInspectors, getInspectorDisplay } from './inspectors-data.js';
 import { renderGridsAdmin, showCreateGridModal, doCreateGrid, openGridEditor, showEditMetaModal, doEditMeta, showAddSectionModal, doAddSection, showEditSectionModal, doEditSection, doDeleteSection, severitySelect, showAddCriterionModal, doAddCriterion, showEditCriterionModal, doEditCriterion, doDeleteCriterion, archiveGrid, duplicateGrid, showGridVersions, rollbackVersion, doExportGrid } from './admin-grids.js';
 import { renderUsers, showCreateUserModal, doCreateUser, showEditUserModal, doEditUser, showChangePwModal, doChangePw, deactivateUser, reactivateUser } from './admin-users.js';
 import { renderAudit, exportAuditCSV } from './audit.js';
 import { renderAnalytics } from './analytics.js';
+import { renderPlanning, planningNavMonth, showNewPlanningModal, planDeptChange, doCreatePlanning, showIndispoModal, doCreateIndispo, deleteIndispo, setPlanningStatus, deletePlanning } from './planning.js';
 import { DEPARTEMENTS, getCommunesByDept } from './benin-data.js';
 
 // ═══════════════════ SCREEN NAVIGATION ═══════════════════
@@ -37,6 +38,7 @@ export function showScreen(name) {
   if (name === 'audit') renderAudit();
   if (name === 'grids') renderGridsAdmin();
   if (name === 'analytics') renderAnalytics();
+  if (name === 'planning') renderPlanning();
   if (name === 'dash') loadDashboard();
 }
 
@@ -372,6 +374,21 @@ window.exportAuditCSV = exportAuditCSV;
 
 // Analytics
 window.renderAnalytics = renderAnalytics;
+
+// Planning
+window.renderPlanning = renderPlanning;
+window.planningNavMonth = planningNavMonth;
+window.showNewPlanningModal = showNewPlanningModal;
+window.planDeptChange = planDeptChange;
+window.doCreatePlanning = doCreatePlanning;
+window.showIndispoModal = showIndispoModal;
+window.doCreateIndispo = doCreateIndispo;
+window.deleteIndispo = deleteIndispo;
+window.setPlanningStatus = setPlanningStatus;
+window.deletePlanning = deletePlanning;
+
+// Report versions
+window.showReportVersions = showReportVersions;
 
 // Benin dropdowns
 window.onDeptChange = onDeptChange;

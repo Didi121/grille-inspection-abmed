@@ -180,6 +180,7 @@ export async function renderReport() {
     ${canComplete?`<button class="btn-rpt" onclick="setInspStatus('completed')">Marquer terminee</button>`:''}
     ${canValidate?`<button class="btn-rpt" style="background:var(--accent);color:var(--white);border-color:var(--accent)" onclick="setInspStatus('validated')">Valider</button>`:''}
     ${canEditSuivi?`<button class="btn-rpt" onclick="openSuiviModal()">Modifier Suivi & Suites</button>`:''}
+    <button class="btn-rpt" onclick="showReportVersions()">Versions</button>
     <button class="btn-rpt" onclick="window.print()">Imprimer / PDF</button>
     <button class="btn-rpt" onclick="exportJSON()">Export JSON</button>
     <button class="btn-rpt" onclick="goToDashboard()">Tableau de bord</button>
@@ -188,14 +189,16 @@ export async function renderReport() {
 
 // ═══════════════════ MODAL SUIVI ET SUITES ═══════════════════
 export async function openSuiviModal() {
-  if(!state.currentInspectionId) return;
+  if(!state.currentInspectionId) { alert('Aucune inspection selectionnee'); return; }
   let insp;
-  try { insp = await invoke('cmd_get_inspection',{token:state.session.token, inspectionId:state.currentInspectionId}); } catch(e){ alert(e); return; }
+  try { insp = await invoke('cmd_get_inspection',{token:state.session.token, inspectionId:state.currentInspectionId}); } catch(e){ alert('Erreur chargement: '+e); return; }
+  if(!insp) { alert('Inspection introuvable'); return; }
   const m = insp.extra_meta || {};
+  const esc = s => (s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   const html = `
     <div style="max-width:600px">
       <h3 style="margin-bottom:16px">Suivi et Suites de l'inspection</h3>
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px">${insp.establishment||'—'} — #${insp.id?.substring(0,6)}</p>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px">${esc(insp.establishment)||'—'} — #${insp.id?.substring(0,6)}</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="field"><label>Date attendue envoi rapport</label><input type="date" id="sm_dateRapport" value="${m.date_rapport_attendue||''}"/></div>
         <div class="field"><label>Date depot rapport preliminaire</label><input type="date" id="sm_dateRapportPrelim" value="${m.date_rapport_prelim||''}"/></div>
@@ -205,8 +208,8 @@ export async function openSuiviModal() {
         <div class="field"><label>Date retour CAPA</label><input type="date" id="sm_dateRetourCapa" value="${m.date_retour_capa||''}"/></div>
         <div class="field"><label>Date de cloture</label><input type="date" id="sm_dateCloture" value="${m.date_cloture||''}"/></div>
         <div class="field"><label>Proces-Verbal</label><select id="sm_pv"><option value="">—</option><option ${m.proces_verbal==='Oui'?'selected':''}>Oui</option><option ${m.proces_verbal==='Non'?'selected':''}>Non</option></select></div>
-        <div class="field" style="grid-column:1/-1"><label>Suite administrative proposee</label><input id="sm_suiteAdmin" value="${(m.suite_admin||'').replace(/"/g,'&quot;')}" placeholder="Ex: Mise en demeure..."/></div>
-        <div class="field" style="grid-column:1/-1"><label>Delivrance d'acte</label><input id="sm_acte" value="${(m.acte||'').replace(/"/g,'&quot;')}" placeholder="Ex: Certificat de conformite..."/></div>
+        <div class="field" style="grid-column:1/-1"><label>Suite administrative proposee</label><input id="sm_suiteAdmin" value="${esc(m.suite_admin)}" placeholder="Ex: Mise en demeure..."/></div>
+        <div class="field" style="grid-column:1/-1"><label>Delivrance d'acte</label><input id="sm_acte" value="${esc(m.acte)}" placeholder="Ex: Certificat de conformite..."/></div>
       </div>
       <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
         <button class="btn-sm" onclick="closeModal()">Annuler</button>
@@ -225,9 +228,10 @@ export function autoCalcCapaSuivi() {
 }
 
 export async function saveSuiviMeta() {
-  if(!state.currentInspectionId) return;
+  if(!state.currentInspectionId) { alert('Aucune inspection selectionnee'); return; }
   try {
     const insp = await invoke('cmd_get_inspection',{token:state.session.token, inspectionId:state.currentInspectionId});
+    if(!insp) { alert('Inspection introuvable'); return; }
     const meta = insp.extra_meta || {};
     meta.date_rapport_attendue = document.getElementById('sm_dateRapport').value;
     meta.date_rapport_prelim = document.getElementById('sm_dateRapportPrelim').value;
@@ -248,6 +252,40 @@ export async function saveSuiviMeta() {
     if(window.showToast) window.showToast('Suivi mis a jour','info');
     renderReport();
   } catch(e){ alert('Erreur: '+e); }
+}
+
+export async function showReportVersions() {
+  if(!state.currentInspectionId) return;
+  try {
+    const snapshots = await invoke('cmd_list_report_snapshots',{token:state.session.token, inspectionId:state.currentInspectionId});
+    if(!snapshots.length) {
+      window.openModal('<div><h3>Historique des versions</h3><p style="color:var(--text-muted);margin-top:12px">Aucune version sauvegardee.<br/><small>Un snapshot est cree automatiquement quand l\'inspection est marquee "Terminee" ou "Validee".</small></p><div style="text-align:right;margin-top:16px"><button class="btn-sm" onclick="closeModal()">Fermer</button></div></div>');
+      return;
+    }
+    const html = `<div style="max-width:500px">
+      <h3>Historique des versions du rapport</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin:8px 0 16px">Un snapshot est cree a chaque changement de statut (terminee, validee)</p>
+      <table class="tbl" style="font-size:13px">
+        <thead><tr><th>V.</th><th>Date</th><th>Statut</th><th>Par</th><th>Reponses</th></tr></thead>
+        <tbody>
+        ${snapshots.map(s => {
+          const respCount = Object.keys(s.responses||{}).length;
+          const confCount = Object.values(s.responses||{}).filter(r=>r.conforme===true).length;
+          const ncCount = Object.values(s.responses||{}).filter(r=>r.conforme===false).length;
+          return `<tr>
+            <td style="font-weight:700">v${s.version}</td>
+            <td class="mono" style="font-size:11px">${s.created_at?.substring(0,16).replace('T',' ')||'—'}</td>
+            <td><span class="status-badge status-${s.status}">${s.status==='completed'?'Terminee':'Validee'}</span></td>
+            <td>${s.created_by_name||'—'}</td>
+            <td style="font-size:11px">${respCount} rep. (${confCount}C / ${ncCount}NC)</td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+      <div style="text-align:right;margin-top:16px"><button class="btn-sm" onclick="closeModal()">Fermer</button></div>
+    </div>`;
+    window.openModal(html);
+  } catch(e) { alert('Erreur: '+e); }
 }
 
 export async function setInspStatus(status) {

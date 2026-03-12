@@ -8,7 +8,7 @@ export async function invoke(cmd, args={}) {
   return fallback(cmd, args);
 }
 
-export const DB = { users: [], inspections: [], responses: {}, audit: [], sessions: {}, grids: [], gridVersions: [] };
+export const DB = { users: [], inspections: [], responses: {}, audit: [], sessions: {}, grids: [], gridVersions: [], reportSnapshots: [], planning: [], indisponibilites: [] };
 
 function saveDB() {
   try {
@@ -18,7 +18,10 @@ function saveDB() {
       responses: DB.responses,
       audit: DB.audit,
       grids: DB.grids,
-      gridVersions: DB.gridVersions
+      gridVersions: DB.gridVersions,
+      reportSnapshots: DB.reportSnapshots,
+      planning: DB.planning,
+      indisponibilites: DB.indisponibilites
     };
     localStorage.setItem('ipharma_db', JSON.stringify(d));
   } catch(e){}
@@ -34,6 +37,9 @@ function loadDB() {
       DB.audit = d.audit||[];
       DB.grids = d.grids||[];
       DB.gridVersions = d.gridVersions||[];
+      DB.reportSnapshots = d.reportSnapshots||[];
+      DB.planning = d.planning||[];
+      DB.indisponibilites = d.indisponibilites||[];
     }
   } catch(e){}
 }
@@ -195,6 +201,18 @@ function fallback(cmd, a) {
       const insp=DB.inspections.find(i=>i.id===a.inspectionId);
       if(!insp) throw 'Inspection non trouvée';
       if(!canTransition(insp.status, a.status)) throw `Transition invalide : ${insp.status} → ${a.status}`;
+      // Snapshot du rapport lors du passage a completed ou validated
+      if(['completed','validated'].includes(a.status)) {
+        const resps = DB.responses[a.inspectionId] || {};
+        const version = (DB.reportSnapshots.filter(s=>s.inspection_id===a.inspectionId).length||0)+1;
+        DB.reportSnapshots.push({
+          id: crypto.randomUUID(), inspection_id: a.inspectionId, version,
+          status: a.status, responses: JSON.parse(JSON.stringify(resps)),
+          meta: JSON.parse(JSON.stringify(insp.extra_meta||{})),
+          created_by: state.session?.user?.id, created_by_name: state.session?.user?.full_name,
+          created_at: now()
+        });
+      }
       insp.status=a.status; insp.updated_at=now();
       if(a.status==='validated'){insp.validated_by=state.session?.user?.id;insp.validated_by_name=state.session?.user?.full_name;insp.validated_at=now();}
       addAudit(state.session?.user?.id, state.session?.user?.username, 'SET_STATUS_'+a.status.toUpperCase(),'inspection',a.inspectionId,'');
@@ -287,6 +305,41 @@ function fallback(cmd, a) {
     }
     case 'cmd_export_audit_csv': return 'timestamp,action,user,details\n'+DB.audit.map(l=>l.timestamp+','+l.action+','+(l.username||'')+','+(l.details||'')).join('\n');
     case 'cmd_export_audit_json': return JSON.stringify(DB.audit,null,2);
+
+    // ═══════════ SNAPSHOTS RAPPORT ═══════════
+    case 'cmd_list_report_snapshots': return DB.reportSnapshots.filter(s=>s.inspection_id===a.inspectionId).sort((x,y)=>y.version-x.version);
+    case 'cmd_get_report_snapshot': return DB.reportSnapshots.find(s=>s.id===a.snapshotId) || null;
+
+    // ═══════════ PLANNING ═══════════
+    case 'cmd_list_planning': return DB.planning.sort((x,y)=>(x.date_debut||'').localeCompare(y.date_debut||''));
+    case 'cmd_create_planning': {
+      const p = { id:crypto.randomUUID(), ...a.req, status:'planifie', created_by:state.session?.user?.id, created_by_name:state.session?.user?.full_name, created_at:now() };
+      DB.planning.push(p);
+      addAudit(state.session?.user?.id, state.session?.user?.username, 'CREATE_PLANNING','planning',p.id, p.establishment||'');
+      saveDB(); return p.id;
+    }
+    case 'cmd_update_planning': {
+      const p = DB.planning.find(x=>x.id===a.planningId);
+      if(p) { Object.assign(p, a.req, { updated_at:now() }); }
+      saveDB(); return null;
+    }
+    case 'cmd_delete_planning': {
+      DB.planning = DB.planning.filter(x=>x.id!==a.planningId);
+      addAudit(state.session?.user?.id, state.session?.user?.username, 'DELETE_PLANNING','planning',a.planningId,'');
+      saveDB(); return null;
+    }
+
+    // ═══════════ INDISPONIBILITES ═══════════
+    case 'cmd_list_indisponibilites': return DB.indisponibilites.sort((x,y)=>(x.date_debut||'').localeCompare(y.date_debut||''));
+    case 'cmd_create_indisponibilite': {
+      const ind = { id:crypto.randomUUID(), ...a.req, created_at:now() };
+      DB.indisponibilites.push(ind);
+      saveDB(); return ind.id;
+    }
+    case 'cmd_delete_indisponibilite': {
+      DB.indisponibilites = DB.indisponibilites.filter(x=>x.id!==a.indisponibiliteId);
+      saveDB(); return null;
+    }
     case 'get_grid': {
       if(!a?.token||!DB.sessions[a.token]) throw 'Non authentifié';
       const g=DB.grids.find(x=>x.id===a.gridId&&x.status==='active');

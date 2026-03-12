@@ -18,7 +18,7 @@ import { renderGridsAdmin, showCreateGridModal, doCreateGrid, openGridEditor, sh
 import { renderUsers, showCreateUserModal, doCreateUser, showEditUserModal, doEditUser, showChangePwModal, doChangePw, deactivateUser, reactivateUser } from './admin-users.js';
 import { renderAudit, exportAuditCSV } from './audit.js';
 import { renderAnalytics } from './analytics.js';
-import { renderPlanning, planningNavMonth, showNewPlanningModal, planDeptChange, doCreatePlanning, showIndispoModal, doCreateIndispo, deleteIndispo, setPlanningStatus, deletePlanning } from './planning.js';
+import { renderPlanning, planningNavMonth, showNewPlanningModal, planDeptChange, doCreatePlanning, showIndispoModal, doCreateIndispo, deleteIndispo, setPlanningStatus, deletePlanning, showObjectifModal, saveObjectif } from './planning.js';
 import { DEPARTEMENTS, getCommunesByDept } from './benin-data.js';
 
 // ═══════════════════ SCREEN NAVIGATION ═══════════════════
@@ -386,6 +386,8 @@ window.doCreateIndispo = doCreateIndispo;
 window.deleteIndispo = deleteIndispo;
 window.setPlanningStatus = setPlanningStatus;
 window.deletePlanning = deletePlanning;
+window.showObjectifModal = showObjectifModal;
+window.saveObjectif = saveObjectif;
 
 // Report versions
 window.showReportVersions = showReportVersions;

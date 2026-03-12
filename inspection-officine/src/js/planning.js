@@ -13,6 +13,7 @@ let currentMonth = new Date().getMonth();
 let currentYear = new Date().getFullYear();
 let planningList = [];
 let indispoList = [];
+let appSettings = {};
 
 export async function renderPlanning() {
   const panel = document.getElementById('planningPanel');
@@ -21,7 +22,8 @@ export async function renderPlanning() {
   try {
     planningList = await invoke('cmd_list_planning', { token: state.session.token }) || [];
     indispoList = await invoke('cmd_list_indisponibilites', { token: state.session.token }) || [];
-  } catch (e) { console.error('Planning load error:', e); planningList = []; indispoList = []; }
+    appSettings = await invoke('cmd_get_settings', { token: state.session.token }) || {};
+  } catch (e) { console.error('Planning load error:', e); planningList = []; indispoList = []; appSettings = {}; }
 
   const role = state.session?.user?.role;
   const canEdit = role === 'admin' || role === 'lead_inspector';
@@ -35,6 +37,37 @@ export async function renderPlanning() {
   const annule = planningList.filter(p => p.status === 'annule').length;
   const totalP = planningList.length;
 
+  // Objectif annuel et inspections reelles
+  const year = currentYear;
+  const objectifAnnuel = parseInt(appSettings['objectif_' + year]) || 0;
+  let inspRealisees = 0;
+  try {
+    const allInsp = await invoke('cmd_list_inspections', { token: state.session.token, myOnly: false, status: null }) || [];
+    inspRealisees = allInsp.filter(i => i.date_inspection && i.date_inspection.startsWith(String(year)) && ['completed', 'validated'].includes(i.status)).length;
+  } catch(_){}
+  const planifieesAnnee = planningList.filter(p => p.date_debut && p.date_debut.startsWith(String(year))).length;
+  const pctRealise = objectifAnnuel > 0 ? Math.min((inspRealisees / objectifAnnuel * 100), 100).toFixed(0) : 0;
+  const pctPlanifie = objectifAnnuel > 0 ? Math.min(((inspRealisees + planifie + enCours) / objectifAnnuel * 100), 100).toFixed(0) : 0;
+
+  // Evolution trimestrielle
+  const trimLabels = ['T1 (Jan-Mar)', 'T2 (Avr-Jun)', 'T3 (Jul-Sep)', 'T4 (Oct-Dec)'];
+  const trimRealise = [0, 0, 0, 0];
+  const trimPlanifie = [0, 0, 0, 0];
+  try {
+    const allInsp = await invoke('cmd_list_inspections', { token: state.session.token, myOnly: false, status: null }) || [];
+    allInsp.filter(i => i.date_inspection && i.date_inspection.startsWith(String(year))).forEach(i => {
+      const m = parseInt(i.date_inspection.substring(5, 7));
+      const q = Math.floor((m - 1) / 3);
+      if (['completed', 'validated'].includes(i.status)) trimRealise[q]++;
+    });
+  } catch(_){}
+  planningList.filter(p => p.date_debut && p.date_debut.startsWith(String(year))).forEach(p => {
+    const m = parseInt(p.date_debut.substring(5, 7));
+    const q = Math.floor((m - 1) / 3);
+    trimPlanifie[q]++;
+  });
+  const trimMax = Math.max(...trimRealise, ...trimPlanifie, 1);
+
   panel.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <div>
@@ -47,9 +80,79 @@ export async function renderPlanning() {
       </div>
     </div>
 
-    <!-- Stats -->
+    <!-- Objectif annuel -->
+    <div class="ana-section" style="margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 class="ana-section-title" style="margin:0;border:none;padding:0">Objectif annuel ${year}</h3>
+        ${canEdit ? `<button class="btn-sm" style="font-size:11px" onclick="showObjectifModal()">Modifier objectif</button>` : ''}
+      </div>
+      ${objectifAnnuel > 0 ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+          <div style="text-align:center;padding:10px;background:var(--gray-50);border:1px solid var(--border)">
+            <div style="font-size:24px;font-weight:700;color:var(--accent)">${objectifAnnuel}</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Objectif</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--gray-50);border:1px solid var(--border)">
+            <div style="font-size:24px;font-weight:700;color:#16a34a">${inspRealisees}</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Realisees</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--gray-50);border:1px solid var(--border)">
+            <div style="font-size:24px;font-weight:700;color:#2563eb">${planifie + enCours}</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">En cours/planifiees</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--gray-50);border:1px solid var(--border)">
+            <div style="font-size:24px;font-weight:700;color:${objectifAnnuel - inspRealisees - planifie - enCours > 0 ? '#d97706' : '#16a34a'}">${Math.max(objectifAnnuel - inspRealisees - planifie - enCours, 0)}</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Restantes</div>
+          </div>
+        </div>
+        <div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:4px">
+            <span>Progression</span>
+            <span><strong style="color:${parseInt(pctRealise)>=70?'#16a34a':parseInt(pctRealise)>=40?'#d97706':'#dc2626'}">${pctRealise}%</strong> realise — ${pctPlanifie}% planifie</span>
+          </div>
+          <div style="height:16px;background:var(--gray-100);border-radius:8px;overflow:hidden;position:relative">
+            <div style="height:100%;width:${pctPlanifie}%;background:#bfdbfe;border-radius:8px;position:absolute;top:0;left:0"></div>
+            <div style="height:100%;width:${pctRealise}%;background:#16a34a;border-radius:8px;position:absolute;top:0;left:0"></div>
+          </div>
+          <div style="display:flex;gap:16px;margin-top:6px;font-size:10px;color:var(--text-muted)">
+            <span><span style="display:inline-block;width:10px;height:10px;background:#16a34a;border-radius:2px;vertical-align:middle"></span> Realisees</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:#bfdbfe;border-radius:2px;vertical-align:middle"></span> Planifiees</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:var(--gray-100);border-radius:2px;vertical-align:middle"></span> Restant</span>
+          </div>
+        </div>
+        <!-- Evolution trimestrielle -->
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;margin-bottom:10px">Evolution trimestrielle ${year}</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+            ${trimLabels.map((label, q) => {
+              const obj4 = Math.ceil(objectifAnnuel / 4);
+              const r = trimRealise[q];
+              const p = trimPlanifie[q];
+              const pctQ = obj4 > 0 ? Math.min((r / obj4 * 100), 100).toFixed(0) : 0;
+              return `<div style="text-align:center">
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">${label}</div>
+                <div style="height:60px;display:flex;align-items:flex-end;justify-content:center;gap:3px">
+                  <div style="width:16px;background:#16a34a;height:${trimMax>0?(r/trimMax*100):0}%;min-height:${r>0?4:0}px;border-radius:2px 2px 0 0" title="${r} realisees"></div>
+                  <div style="width:16px;background:#bfdbfe;height:${trimMax>0?(p/trimMax*100):0}%;min-height:${p>0?4:0}px;border-radius:2px 2px 0 0" title="${p} planifiees"></div>
+                </div>
+                <div style="font-size:11px;font-weight:600;margin-top:4px;color:${parseInt(pctQ)>=75?'#16a34a':parseInt(pctQ)>=50?'#d97706':'#dc2626'}">${r}/${obj4}</div>
+                <div style="font-size:9px;color:var(--text-muted)">${pctQ}%</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+      ` : `
+        <div style="text-align:center;padding:20px;color:var(--text-muted)">
+          <p style="font-size:14px">Aucun objectif defini pour ${year}</p>
+          <p style="font-size:12px;margin-top:4px">Definissez un objectif annuel pour suivre la progression des inspections</p>
+          ${canEdit ? `<button class="btn-primary" style="width:auto;padding:8px 20px;margin-top:12px" onclick="showObjectifModal()">Definir l'objectif ${year}</button>` : ''}
+        </div>
+      `}
+    </div>
+
+    <!-- Stats programmation -->
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px">
-      <div class="ana-card"><span class="ana-num">${totalP}</span><span class="ana-lbl">Total</span></div>
+      <div class="ana-card"><span class="ana-num">${totalP}</span><span class="ana-lbl">Programmees</span></div>
       <div class="ana-card"><span class="ana-num" style="color:#2563eb">${planifie}</span><span class="ana-lbl">Planifiees</span></div>
       <div class="ana-card"><span class="ana-num" style="color:#d97706">${enCours}</span><span class="ana-lbl">En cours</span></div>
       <div class="ana-card"><span class="ana-num" style="color:#16a34a">${realise}</span><span class="ana-lbl">Realisees</span></div>
@@ -384,6 +487,48 @@ export async function setPlanningStatus(id, status) {
 export async function deletePlanning(id) {
   if (!confirm('Supprimer cette programmation ?')) return;
   try { await invoke('cmd_delete_planning', { token: state.session.token, planningId: id }); renderPlanning(); } catch (e) { alert(e); }
+}
+
+// ═══════════════════ OBJECTIF ANNUEL ═══════════════════
+export function showObjectifModal() {
+  const year = currentYear;
+  const current = appSettings['objectif_' + year] || '';
+  const prevYear = appSettings['objectif_' + (year - 1)] || '';
+  const html = `<div style="max-width:420px">
+    <h3>Objectif annuel d'inspections</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin:8px 0 16px">Definissez le nombre d'inspections prevues pour l'annee. Cet objectif permet de suivre la progression et d'anticiper la charge de travail.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="field">
+        <label>Objectif ${year} <span class="required">*</span></label>
+        <input type="number" id="objAnnuel" min="1" max="9999" value="${current}" placeholder="Ex: 200" style="font-size:18px;font-weight:700;text-align:center"/>
+      </div>
+      <div class="field">
+        <label>Objectif ${year - 1} (ref.)</label>
+        <input type="number" id="objPrev" min="0" max="9999" value="${prevYear}" placeholder="—"/>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+      <button class="btn-sm" onclick="closeModal()">Annuler</button>
+      <button class="btn-primary" style="width:auto;padding:8px 20px" onclick="saveObjectif()">Enregistrer</button>
+    </div>
+  </div>`;
+  window.openModal(html);
+}
+
+export async function saveObjectif() {
+  const year = currentYear;
+  const val = document.getElementById('objAnnuel').value;
+  const prev = document.getElementById('objPrev').value;
+  if (!val || parseInt(val) < 1) { alert('Veuillez saisir un objectif valide (minimum 1)'); return; }
+  try {
+    const settings = {};
+    settings['objectif_' + year] = parseInt(val);
+    if (prev) settings['objectif_' + (year - 1)] = parseInt(prev);
+    await invoke('cmd_save_settings', { token: state.session.token, settings });
+    window.closeModal();
+    if (window.showToast) window.showToast('Objectif ' + year + ' enregistre : ' + val + ' inspections', 'info');
+    renderPlanning();
+  } catch (e) { alert('Erreur: ' + e); }
 }
 
 function fmtD(s) { if (!s) return '—'; const p = s.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : s; }

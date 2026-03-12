@@ -8,7 +8,7 @@ export async function invoke(cmd, args={}) {
   return fallback(cmd, args);
 }
 
-export const DB = { users: [], inspections: [], responses: {}, audit: [], sessions: {}, grids: [], gridVersions: [], reportSnapshots: [], planning: [], indisponibilites: [] };
+export const DB = { users: [], inspections: [], responses: {}, audit: [], sessions: {}, grids: [], gridVersions: [], reportSnapshots: [], planning: [], indisponibilites: [], settings: {} };
 
 function saveDB() {
   try {
@@ -21,7 +21,8 @@ function saveDB() {
       gridVersions: DB.gridVersions,
       reportSnapshots: DB.reportSnapshots,
       planning: DB.planning,
-      indisponibilites: DB.indisponibilites
+      indisponibilites: DB.indisponibilites,
+      settings: DB.settings
     };
     localStorage.setItem('ipharma_db', JSON.stringify(d));
   } catch(e){}
@@ -40,6 +41,7 @@ function loadDB() {
       DB.reportSnapshots = d.reportSnapshots||[];
       DB.planning = d.planning||[];
       DB.indisponibilites = d.indisponibilites||[];
+      DB.settings = d.settings||{};
     }
   } catch(e){}
 }
@@ -340,6 +342,10 @@ function fallback(cmd, a) {
       DB.indisponibilites = DB.indisponibilites.filter(x=>x.id!==a.indisponibiliteId);
       saveDB(); return null;
     }
+
+    // ═══════════ SETTINGS ═══════════
+    case 'cmd_get_settings': return DB.settings;
+    case 'cmd_save_settings': { Object.assign(DB.settings, a.settings); saveDB(); return null; }
     case 'get_grid': {
       if(!a?.token||!DB.sessions[a.token]) throw 'Non authentifié';
       const g=DB.grids.find(x=>x.id===a.gridId&&x.status==='active');

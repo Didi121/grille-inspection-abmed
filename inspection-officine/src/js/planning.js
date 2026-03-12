@@ -19,12 +19,14 @@ export async function renderPlanning() {
   panel.innerHTML = '<p style="text-align:center;padding:40px;color:var(--text-muted)">Chargement...</p>';
 
   try {
-    planningList = await invoke('cmd_list_planning', { token: state.session.token });
-    indispoList = await invoke('cmd_list_indisponibilites', { token: state.session.token });
-  } catch (_) { planningList = []; indispoList = []; }
+    planningList = await invoke('cmd_list_planning', { token: state.session.token }) || [];
+    indispoList = await invoke('cmd_list_indisponibilites', { token: state.session.token }) || [];
+  } catch (e) { console.error('Planning load error:', e); planningList = []; indispoList = []; }
 
   const role = state.session?.user?.role;
   const canEdit = role === 'admin' || role === 'lead_inspector';
+
+  try {
 
   // Stats planning
   const planifie = planningList.filter(p => p.status === 'planifie').length;
@@ -98,6 +100,11 @@ export async function renderPlanning() {
       </table>` : '<p style="color:var(--text-muted);text-align:center;padding:20px">Aucune programmation. Cliquez sur "+ Programmer" pour planifier une inspection.</p>'}
     </div>
   `;
+
+  } catch(err) {
+    console.error('Planning render error:', err);
+    panel.innerHTML = '<p style="color:#dc2626;padding:20px">Erreur rendu planning: ' + err.message + '</p>';
+  }
 }
 
 // ═══════════════════ CALENDRIER ═══════════════════

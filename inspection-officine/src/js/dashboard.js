@@ -17,7 +17,7 @@ export async function loadDashboard() {
   if (dashActions) {
     dashActions.innerHTML = `
       ${canCreate ? '<button class="btn-primary" style="width:auto;padding:8px 16px;font-size:14px" onclick="showScreen(\'grid-select\')">+ Nouvelle inspection</button>' : ''}
-      ${isLead ? '<button class="btn-sm" style="padding:8px 16px;font-size:13px" onclick="exportAllInspCSV()">Exporter CSV</button>' : ''}
+      ${(isLead || role==='admin') ? '<button class="btn-sm" style="padding:8px 16px;font-size:13px" onclick="exportAllInspCSV()">Exporter CSV</button>' : ''}
     `;
   }
 

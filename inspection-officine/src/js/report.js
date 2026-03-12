@@ -167,15 +167,84 @@ export async function renderReport() {
     </div>
   `;
 
+  // Determine si on peut editer le suivi (pas en mode lecture seule viewer)
+  const canEditSuivi = insp && (state.session?.user?.role !== 'viewer');
+  const isReadOnly = ['lead_inspector','viewer'].includes(state.session?.user?.role);
+
   // Actions sous le rapport
   document.getElementById('rptActions').innerHTML=`
-    <button class="btn-rpt primary" onclick="showScreen('inspection');renderCriterion();updateProgress()">← Retour inspection</button>
+    ${!isReadOnly?`<button class="btn-rpt primary" onclick="showScreen('inspection');renderCriterion();updateProgress()">← Retour inspection</button>`:''}
     ${canComplete?`<button class="btn-rpt" onclick="setInspStatus('completed')">Marquer terminee</button>`:''}
     ${canValidate?`<button class="btn-rpt" style="background:var(--accent);color:var(--white);border-color:var(--accent)" onclick="setInspStatus('validated')">Valider</button>`:''}
+    ${canEditSuivi?`<button class="btn-rpt" onclick="openSuiviModal()">Modifier Suivi & Suites</button>`:''}
     <button class="btn-rpt" onclick="window.print()">Imprimer / PDF</button>
     <button class="btn-rpt" onclick="exportJSON()">Export JSON</button>
     <button class="btn-rpt" onclick="goToDashboard()">Tableau de bord</button>
   `;
+}
+
+// ═══════════════════ MODAL SUIVI ET SUITES ═══════════════════
+export async function openSuiviModal() {
+  if(!state.currentInspectionId) return;
+  let insp;
+  try { insp = await invoke('cmd_get_inspection',{token:state.session.token, inspectionId:state.currentInspectionId}); } catch(e){ alert(e); return; }
+  const m = insp.extra_meta || {};
+  const html = `
+    <div style="max-width:600px">
+      <h3 style="margin-bottom:16px">Suivi et Suites de l'inspection</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px">${insp.establishment||'—'} — #${insp.id?.substring(0,6)}</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field"><label>Date attendue envoi rapport</label><input type="date" id="sm_dateRapport" value="${m.date_rapport_attendue||''}"/></div>
+        <div class="field"><label>Date depot rapport preliminaire</label><input type="date" id="sm_dateRapportPrelim" value="${m.date_rapport_prelim||''}"/></div>
+        <div class="field"><label>Date depot rapport intermediaire</label><input type="date" id="sm_dateRapportInterm" value="${m.date_rapport_interm||''}"/></div>
+        <div class="field"><label>Date envoi du rapport</label><input type="date" id="sm_dateEnvoi" value="${m.date_envoi_rapport||''}" onchange="autoCalcCapaSuivi()"/></div>
+        <div class="field"><label>Date attendue CAPA (auto J+15)</label><input type="date" id="sm_dateCapa" value="${m.date_capa||''}"/></div>
+        <div class="field"><label>Date retour CAPA</label><input type="date" id="sm_dateRetourCapa" value="${m.date_retour_capa||''}"/></div>
+        <div class="field"><label>Date de cloture</label><input type="date" id="sm_dateCloture" value="${m.date_cloture||''}"/></div>
+        <div class="field"><label>Proces-Verbal</label><select id="sm_pv"><option value="">—</option><option ${m.proces_verbal==='Oui'?'selected':''}>Oui</option><option ${m.proces_verbal==='Non'?'selected':''}>Non</option></select></div>
+        <div class="field" style="grid-column:1/-1"><label>Suite administrative proposee</label><input id="sm_suiteAdmin" value="${(m.suite_admin||'').replace(/"/g,'&quot;')}" placeholder="Ex: Mise en demeure..."/></div>
+        <div class="field" style="grid-column:1/-1"><label>Delivrance d'acte</label><input id="sm_acte" value="${(m.acte||'').replace(/"/g,'&quot;')}" placeholder="Ex: Certificat de conformite..."/></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button class="btn-sm" onclick="closeModal()">Annuler</button>
+        <button class="btn-primary" style="width:auto;padding:8px 20px" onclick="saveSuiviMeta()">Enregistrer</button>
+      </div>
+    </div>`;
+  window.openModal(html);
+}
+
+export function autoCalcCapaSuivi() {
+  const envoi = document.getElementById('sm_dateEnvoi')?.value;
+  if(!envoi) return;
+  const d = new Date(envoi); d.setDate(d.getDate() + 15);
+  const capaField = document.getElementById('sm_dateCapa');
+  if(capaField && !capaField.value) capaField.value = d.toISOString().split('T')[0];
+}
+
+export async function saveSuiviMeta() {
+  if(!state.currentInspectionId) return;
+  try {
+    const insp = await invoke('cmd_get_inspection',{token:state.session.token, inspectionId:state.currentInspectionId});
+    const meta = insp.extra_meta || {};
+    meta.date_rapport_attendue = document.getElementById('sm_dateRapport').value;
+    meta.date_rapport_prelim = document.getElementById('sm_dateRapportPrelim').value;
+    meta.date_rapport_interm = document.getElementById('sm_dateRapportInterm').value;
+    meta.date_envoi_rapport = document.getElementById('sm_dateEnvoi').value;
+    meta.date_capa = document.getElementById('sm_dateCapa').value;
+    meta.date_retour_capa = document.getElementById('sm_dateRetourCapa').value;
+    meta.date_cloture = document.getElementById('sm_dateCloture').value;
+    meta.proces_verbal = document.getElementById('sm_pv').value;
+    meta.suite_admin = document.getElementById('sm_suiteAdmin').value;
+    meta.acte = document.getElementById('sm_acte').value;
+    await invoke('cmd_update_inspection_meta',{
+      token:state.session.token,
+      inspectionId:state.currentInspectionId,
+      req:{ date_inspection:insp.date_inspection, establishment:insp.establishment, inspection_type:insp.inspection_type, inspectors:insp.inspectors, extra_meta:meta }
+    });
+    window.closeModal();
+    if(window.showToast) window.showToast('Suivi mis a jour','info');
+    renderReport();
+  } catch(e){ alert('Erreur: '+e); }
 }
 
 export async function setInspStatus(status) {
@@ -186,15 +255,30 @@ export async function setInspStatus(status) {
   } catch(e){ alert(e); }
 }
 
-export function exportJSON() {
+export async function exportJSON() {
+  let insp = null;
+  if(state.currentInspectionId) try { insp = await invoke('cmd_get_inspection',{token:state.session.token, inspectionId:state.currentInspectionId}); } catch(_){}
   const rpt = {
-    meta:{grid:state.activeGrid?.name,grid_id:state.activeGrid?.id,establishment:document.getElementById('mEstab')?.value,date:document.getElementById('mDate')?.value,inspection_id:state.currentInspectionId},
+    meta:{
+      grid:state.activeGrid?.name,
+      grid_id:state.activeGrid?.id,
+      establishment: insp?.establishment || document.getElementById('mEstab')?.value || '',
+      date: insp?.date_inspection || document.getElementById('mDate')?.value || '',
+      inspection_id:state.currentInspectionId,
+      inspection_type: insp?.inspection_type || '',
+      inspectors: insp?.inspectors || [],
+      extra_meta: insp?.extra_meta || {}
+    },
     total:state.allCriteria.length,
     conforme:Object.values(state.responses).filter(r=>r.conforme===true).length,
     non_conforme:Object.values(state.responses).filter(r=>r.conforme===false).length,
-    ecarts:state.allCriteria.filter(c=>state.responses[c.id]?.conforme===false).map(c=>({id:c.id,section:c.sectionTitle,reference:c.reference,description:c.description,observation:state.responses[c.id]?.observation||''})),
+    ecarts:state.allCriteria.filter(c=>state.responses[c.id]?.conforme===false).map(c=>{
+      const r=state.responses[c.id]||{};
+      return {id:c.id,section:c.sectionTitle,reference:c.reference,description:c.description,observation:r.observation||'',severity:r.severity||c.severity||'majeur',factor:r.factor||'neutre',immediateDanger:r.immediateDanger||false};
+    }),
     all_responses:Object.entries(state.responses).map(([id,r])=>({criterion_id:parseInt(id),...r}))
   };
+  const name = (insp?.establishment||state.activeGrid?.id||'x').replace(/[^a-zA-Z0-9]/g,'_').substring(0,30);
   const blob=new Blob([JSON.stringify(rpt,null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`rapport_${state.activeGrid?.id||'x'}_${Date.now()}.json`;a.click();
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`rapport_${name}_${Date.now()}.json`;a.click();
 }

@@ -11,7 +11,9 @@ import { loadDashboard, statusLabel, resetDashFilters, quickValidate, deleteInsp
 import { renderGridSelector, selectGrid, autoCalcCapa } from './grid-selector.js';
 import { createAndStart, openInspection, renderSidebar, renderCriterion } from './inspection.js';
 import { riskParams, skipSection, reactivateSection, setSeverity, setResp, updateObs, nav, updateProgress, setFactor, setFactorJustification, setImmediateDanger, persistRisk } from './responses.js';
-import { renderReport, setInspStatus, exportJSON } from './report.js';
+import { renderReport, setInspStatus, exportJSON, openSuiviModal, autoCalcCapaSuivi, saveSuiviMeta } from './report.js';
+import { searchEstablishments, typeLabel as estabTypeLabel } from './establishments-data.js';
+import { INSPECTORS, searchInspectors, getInspectorDisplay } from './inspectors-data.js';
 import { renderGridsAdmin, showCreateGridModal, doCreateGrid, openGridEditor, showEditMetaModal, doEditMeta, showAddSectionModal, doAddSection, showEditSectionModal, doEditSection, doDeleteSection, severitySelect, showAddCriterionModal, doAddCriterion, showEditCriterionModal, doEditCriterion, doDeleteCriterion, archiveGrid, duplicateGrid, showGridVersions, rollbackVersion, doExportGrid } from './admin-grids.js';
 import { renderUsers, showCreateUserModal, doCreateUser, showEditUserModal, doEditUser, showChangePwModal, doChangePw, deactivateUser, reactivateUser } from './admin-users.js';
 import { renderAudit, exportAuditCSV } from './audit.js';
@@ -123,10 +125,106 @@ function onDashDeptFilterChange() {
   if (state.session) loadDashboard();
 }
 
+// ═══════════════════ AUTOCOMPLETE ═══════════════════
+
+function setupAutocomplete(inputId, searchFn, renderFn, onSelectFn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  let dropdown = null;
+  const ensureDropdown = () => {
+    if (dropdown) return dropdown;
+    dropdown = document.createElement('div');
+    dropdown.className = 'autocomplete-dropdown';
+    dropdown.style.cssText = 'position:absolute;z-index:100;background:var(--white,#fff);border:1px solid var(--border,#e2e8f0);max-height:220px;overflow-y:auto;width:100%;box-shadow:0 4px 12px rgba(0,0,0,0.15);display:none;font-size:13px';
+    input.parentElement.style.position = 'relative';
+    input.parentElement.appendChild(dropdown);
+    return dropdown;
+  };
+  input.addEventListener('input', () => {
+    const dd = ensureDropdown();
+    const results = searchFn(input.value);
+    if (!results.length) { dd.style.display = 'none'; return; }
+    dd.innerHTML = results.map((r, i) => renderFn(r, i)).join('');
+    dd.style.display = 'block';
+  });
+  input.addEventListener('blur', () => { setTimeout(() => { if (dropdown) dropdown.style.display = 'none'; }, 200); });
+  input.addEventListener('keydown', e => { if (e.key === 'Escape' && dropdown) dropdown.style.display = 'none'; });
+  return { input, getDropdown: ensureDropdown };
+}
+
+function selectEstabSuggestion(nom, dept, commune, responsable) {
+  const estabInput = document.getElementById('mEstab');
+  if (estabInput) estabInput.value = nom;
+  if (responsable) {
+    const respInput = document.getElementById('mResp');
+    if (respInput && !respInput.value) respInput.value = responsable;
+  }
+  if (dept) {
+    const deptSel = document.getElementById('mDept');
+    if (deptSel) { deptSel.value = dept; onDeptChange(); }
+    if (commune) {
+      setTimeout(() => {
+        const communeSel = document.getElementById('mCommune');
+        if (communeSel) communeSel.value = commune;
+      }, 50);
+    }
+  }
+}
+
+function selectInspSuggestion(display) {
+  const inspInput = document.getElementById('mInsp');
+  if (!inspInput) return;
+  const current = inspInput.value.split(',').map(s => s.trim()).filter(Boolean);
+  if (!current.includes(display)) current.push(display);
+  inspInput.value = current.join(', ');
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialiser les dropdowns departement
   populateDeptSelect('mDept');
   populateDeptSelect('dDeptFilter');
+
+  // Autocomplete etablissement
+  setupAutocomplete('mEstab',
+    q => searchEstablishments(q, 12),
+    (e, i) => `<div style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9;hover:background:#f8fafc"
+      onmousedown="selectEstabSuggestion('${e.n.replace(/'/g,"\\'")}','${e.d}','${e.c}','${e.r.replace(/'/g,"\\'")}')"
+      onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+      <div style="font-weight:600">${e.n}</div>
+      <div style="font-size:11px;color:#64748b">${estabTypeLabel(e.t)} — ${e.c}, ${e.d}${e.r?' — '+e.r:''}</div>
+    </div>`,
+    null
+  );
+
+  // Autocomplete inspecteurs
+  setupAutocomplete('mInsp',
+    q => { const parts = q.split(','); const last = (parts[parts.length-1]||'').trim(); return searchInspectors(last); },
+    (insp, i) => {
+      const display = getInspectorDisplay(insp);
+      return `<div style="padding:6px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9"
+        onmousedown="selectInspSuggestion('${display.replace(/'/g,"\\'")}')"
+        onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+        <span style="font-weight:600">${insp.nom}</span> ${insp.prenom}
+        <span style="float:right;font-size:11px;color:#64748b;font-weight:700">${insp.initiales}</span>
+      </div>`;
+    },
+    null
+  );
+
+  // Autocomplete inspecteur principal
+  setupAutocomplete('mLead',
+    q => searchInspectors(q),
+    (insp, i) => {
+      const display = getInspectorDisplay(insp);
+      return `<div style="padding:6px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9"
+        onmousedown="document.getElementById('mLead').value='${display.replace(/'/g,"\\'")}'"
+        onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+        <span style="font-weight:600">${insp.nom}</span> ${insp.prenom}
+        <span style="float:right;font-size:11px;color:#64748b;font-weight:700">${insp.initiales}</span>
+      </div>`;
+    },
+    null
+  );
 
   // Attacher les filtres du dashboard
   ['dSearch', 'dTypeFilter', 'dStatusFilter', 'dDeptFilter', 'dCommuneFilter'].forEach(id => {
@@ -217,6 +315,9 @@ window.setImmediateDanger = setImmediateDanger;
 // Report
 window.setInspStatus = setInspStatus;
 window.exportJSON = exportJSON;
+window.openSuiviModal = openSuiviModal;
+window.autoCalcCapaSuivi = autoCalcCapaSuivi;
+window.saveSuiviMeta = saveSuiviMeta;
 
 // Admin Grids
 window.renderGridsAdmin = renderGridsAdmin;
@@ -265,3 +366,7 @@ window.onDeptChange = onDeptChange;
 
 // Toast / UX
 window.showToast = showToast;
+
+// Autocomplete
+window.selectEstabSuggestion = selectEstabSuggestion;
+window.selectInspSuggestion = selectInspSuggestion;

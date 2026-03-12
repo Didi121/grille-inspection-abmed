@@ -22,9 +22,32 @@ export async function selectGrid(gridId) {
   state.activeGrid = grid; state.sections = grid.sections;
   state.allCriteria = []; state.sections.forEach(s=>s.items.forEach(item=>state.allCriteria.push({...item, sectionTitle:s.title, sectionId:s.id})));
   state.responses = {}; state.currentIndex = 0;
+  state.currentInspectionId = null;
   document.getElementById('metaBadge').innerHTML=`<span>${grid.icon}</span> ${grid.name}`;
   document.getElementById('btnStart').style.background='var(--accent)';
+  // Reset tous les champs du formulaire
   document.getElementById('mDate').value=new Date().toISOString().split('T')[0];
+  document.getElementById('mEstab').value='';
+  document.getElementById('mResp').value='';
+  document.getElementById('mType').selectedIndex=0;
+  document.getElementById('mInsp').value='';
+  document.getElementById('mPeriodeDu').value='';
+  document.getElementById('mPeriodeAu').value='';
+  document.getElementById('mDateRapport').value='';
+  document.getElementById('mDateRapportPrelim').value='';
+  document.getElementById('mDateRapportInterm').value='';
+  document.getElementById('mDateEnvoiRapport').value='';
+  document.getElementById('mDateCapa').value='';
+  document.getElementById('mDateRetourCapa').value='';
+  document.getElementById('mDateCloture').value='';
+  document.getElementById('mPV').value='';
+  document.getElementById('mSuiteAdmin').value='';
+  document.getElementById('mActe').value='';
+  // Reset les selects departement/commune
+  const deptSel = document.getElementById('mDept');
+  if(deptSel) deptSel.value='';
+  const communeSel = document.getElementById('mCommune');
+  if(communeSel) { communeSel.innerHTML='<option value="">— Selectionner un departement d\'abord —</option>'; }
   if(state.session) document.getElementById('mLead').value = state.session.user.full_name;
   window.showScreen('meta');
 }

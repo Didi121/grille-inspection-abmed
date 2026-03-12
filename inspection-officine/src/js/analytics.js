@@ -6,21 +6,6 @@ import { invoke } from './api.js';
 import { esc } from './utils.js';
 import { DEPARTEMENTS, COMMUNE_TO_DEPT } from './benin-data.js';
 import { adjustSeverity, determineComplianceRisk, determineGlobalRisk } from './risk-engine.js';
-import { renderBeninMap, getHeatColor, getRiskColor } from './benin-map.js';
-
-function buildMapHTML(byDept) {
-  const maxCount = Math.max(1, ...Object.values(byDept));
-  const deptData = {};
-  DEPARTEMENTS.forEach(d => {
-    const count = byDept[d.nom] || 0;
-    deptData[d.nom] = {
-      count,
-      color: getHeatColor(count, maxCount),
-      tooltip: `${d.nom}: ${count} inspection(s)`
-    };
-  });
-  return renderBeninMap(deptData);
-}
 
 export async function renderAnalytics() {
   const panel = document.getElementById('analyticsPanel');
@@ -184,36 +169,6 @@ export async function renderAnalytics() {
         <div class="ana-card"><span class="ana-num" style="color:#d97706">${totalMajeurs}</span><span class="ana-lbl">Majeurs</span></div>
         <div class="ana-card"><span class="ana-num" style="color:#2563eb">${totalMineurs}</span><span class="ana-lbl">Mineurs</span></div>
         <div class="ana-card"><span class="ana-num" style="color:#6b7280">${totalObs}</span><span class="ana-lbl">Observations</span></div>
-      </div>
-
-      <!-- Carte du Benin -->
-      <div class="ana-section" style="margin-bottom:24px">
-        <h3 class="ana-section-title">Carte des inspections par departement</h3>
-        <div style="display:grid;grid-template-columns:320px 1fr;gap:20px;align-items:start">
-          <div>
-            <div id="beninMapContainer">${buildMapHTML(byDept)}</div>
-            <div style="margin-top:12px;font-size:11px;color:var(--text-muted)">
-              <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
-                <span><span style="display:inline-block;width:12px;height:12px;background:#f3f4f6;border:1px solid #d1d5db;vertical-align:middle"></span> 0</span>
-                <span><span style="display:inline-block;width:12px;height:12px;background:#93c5fd;vertical-align:middle"></span> Faible</span>
-                <span><span style="display:inline-block;width:12px;height:12px;background:#2563eb;vertical-align:middle"></span> Moyen</span>
-                <span><span style="display:inline-block;width:12px;height:12px;background:#d97706;vertical-align:middle"></span> Eleve</span>
-                <span><span style="display:inline-block;width:12px;height:12px;background:#dc2626;vertical-align:middle"></span> Tres eleve</span>
-              </div>
-            </div>
-          </div>
-          <div id="mapDetails" style="font-size:13px;color:var(--text-muted)">
-            <p>Survolez un departement pour voir les details.<br/>Cliquez pour filtrer les inspections.</p>
-            <div style="margin-top:16px">
-              <strong style="font-size:14px;color:var(--text)">Resume :</strong>
-              <ul style="margin-top:8px;padding-left:20px;line-height:1.8">
-                <li>${Object.keys(byDept).length} departement(s) avec inspections</li>
-                <li>${Object.keys(byCommune).length} commune(s) couvertes</li>
-                <li>${DEPARTEMENTS.length - Object.keys(byDept).filter(d => DEPARTEMENTS.some(dep => dep.nom === d)).length} departement(s) sans inspection</li>
-              </ul>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">

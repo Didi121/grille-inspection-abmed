@@ -129,8 +129,68 @@ impl Database {
             );
 
             -- ═══════════════════════════════════════════════════════════
+            -- SNAPSHOTS RAPPORTS
+            -- ═══════════════════════════════════════════════════════════
+
+            CREATE TABLE IF NOT EXISTS report_snapshots (
+                id              TEXT PRIMARY KEY,
+                inspection_id   TEXT NOT NULL,
+                version         INTEGER NOT NULL,
+                status          TEXT NOT NULL,
+                responses_json  TEXT NOT NULL DEFAULT '{}',
+                meta_json       TEXT NOT NULL DEFAULT '{}',
+                created_by      TEXT,
+                created_by_name TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+
+            -- ═══════════════════════════════════════════════════════════
+            -- PLANNING & INDISPONIBILITES
+            -- ═══════════════════════════════════════════════════════════
+
+            CREATE TABLE IF NOT EXISTS planning (
+                id              TEXT PRIMARY KEY,
+                date_debut      TEXT,
+                date_fin        TEXT,
+                establishment   TEXT,
+                inspection_type TEXT,
+                departement     TEXT,
+                commune         TEXT,
+                priorite        TEXT DEFAULT 'normale',
+                inspectors      TEXT DEFAULT '[]',
+                notes           TEXT DEFAULT '',
+                status          TEXT NOT NULL DEFAULT 'planifie',
+                created_by      TEXT,
+                created_by_name TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+
+            CREATE TABLE IF NOT EXISTS indisponibilites (
+                id              TEXT PRIMARY KEY,
+                inspecteur      TEXT NOT NULL,
+                date_debut      TEXT NOT NULL,
+                date_fin        TEXT,
+                motif           TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+
+            -- ═══════════════════════════════════════════════════════════
+            -- SETTINGS (clef/valeur)
+            -- ═══════════════════════════════════════════════════════════
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key             TEXT PRIMARY KEY,
+                value           TEXT NOT NULL
+            );
+
+            -- ═══════════════════════════════════════════════════════════
             -- INDEX POUR PERFORMANCE
             -- ═══════════════════════════════════════════════════════════
+
+            CREATE INDEX IF NOT EXISTS idx_report_snapshots_insp ON report_snapshots(inspection_id);
+            CREATE INDEX IF NOT EXISTS idx_planning_date ON planning(date_debut);
+            CREATE INDEX IF NOT EXISTS idx_indispo_date ON indisponibilites(date_debut);
 
             CREATE INDEX IF NOT EXISTS idx_responses_insp ON responses(inspection_id);
             CREATE INDEX IF NOT EXISTS idx_inspections_status ON inspections(status);

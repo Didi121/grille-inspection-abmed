@@ -11,14 +11,14 @@ import { loadDashboard, statusLabel, resetDashFilters, quickValidate, deleteInsp
 import { renderGridSelector, selectGrid, autoCalcCapa } from './grid-selector.js';
 import { createAndStart, openInspection, renderSidebar, renderCriterion } from './inspection.js';
 import { riskParams, skipSection, reactivateSection, setSeverity, setResp, updateObs, nav, updateProgress, setFactor, setFactorJustification, setImmediateDanger, persistRisk } from './responses.js';
-import { renderReport, setInspStatus, exportJSON, openSuiviModal, autoCalcCapaSuivi, saveSuiviMeta, showReportVersions } from './report.js';
+import { renderReport, setInspStatus, exportJSON, openSuiviModal, autoCalcCapaSuivi, saveSuiviMeta, showReportVersions, viewSnapshotDetail, createManualSnapshot } from './report.js';
 import { searchEstablishments, typeLabel as estabTypeLabel } from './establishments-data.js';
 import { INSPECTORS, searchInspectors, getInspectorDisplay } from './inspectors-data.js';
 import { renderGridsAdmin, showCreateGridModal, doCreateGrid, openGridEditor, showEditMetaModal, doEditMeta, showAddSectionModal, doAddSection, showEditSectionModal, doEditSection, doDeleteSection, severitySelect, showAddCriterionModal, doAddCriterion, showEditCriterionModal, doEditCriterion, doDeleteCriterion, archiveGrid, duplicateGrid, showGridVersions, rollbackVersion, doExportGrid } from './admin-grids.js';
 import { renderUsers, showCreateUserModal, doCreateUser, showEditUserModal, doEditUser, showChangePwModal, doChangePw, deactivateUser, reactivateUser } from './admin-users.js';
 import { renderAudit, exportAuditCSV } from './audit.js';
 import { renderAnalytics } from './analytics.js';
-import { renderPlanning, planningNavMonth, showNewPlanningModal, planDeptChange, doCreatePlanning, showIndispoModal, doCreateIndispo, deleteIndispo, setPlanningStatus, deletePlanning, showObjectifModal, saveObjectif } from './planning.js';
+import { renderPlanning, planningNavMonth, showNewPlanningModal, planDeptChange, doCreatePlanning, showIndispoModal, doCreateIndispo, deleteIndispo, setPlanningStatus, deletePlanning, showObjectifModal, saveObjectif, recalcObjTotal } from './planning.js';
 import { DEPARTEMENTS, getCommunesByDept } from './benin-data.js';
 
 // ═══════════════════ SCREEN NAVIGATION ═══════════════════
@@ -332,6 +332,8 @@ window.exportJSON = exportJSON;
 window.openSuiviModal = openSuiviModal;
 window.autoCalcCapaSuivi = autoCalcCapaSuivi;
 window.saveSuiviMeta = saveSuiviMeta;
+window.viewSnapshotDetail = viewSnapshotDetail;
+window.createManualSnapshot = createManualSnapshot;
 
 // Admin Grids
 window.renderGridsAdmin = renderGridsAdmin;
@@ -388,6 +390,7 @@ window.setPlanningStatus = setPlanningStatus;
 window.deletePlanning = deletePlanning;
 window.showObjectifModal = showObjectifModal;
 window.saveObjectif = saveObjectif;
+window.recalcObjTotal = recalcObjTotal;
 
 // Report versions
 window.showReportVersions = showReportVersions;

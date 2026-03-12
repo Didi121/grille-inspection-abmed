@@ -14,7 +14,9 @@ use grid::{GridInfo, Section};
 use db::Database;
 use users::{CreateUserRequest, UpdateUserRequest, SessionInfo, User};
 use audit_db::{AuditDatabase, AuditFilter as AuditDbFilter, AuditEntry as AuditDbEntry};
-use storage::{SavedInspection, SavedResponse, CreateInspectionRequest};
+use storage::{SavedInspection, SavedResponse, CreateInspectionRequest,
+    ReportSnapshot, PlanningEntry, CreatePlanningRequest, UpdatePlanningRequest,
+    Indisponibilite, CreateIndispoRequest};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -206,6 +208,24 @@ fn cmd_set_inspection_status(database: State<Database>, audit_database: State<Au
     } else {
         users::validate_session(&database, &token)?
     };
+
+    // Creer un snapshot automatique avant le changement de statut (completed/validated)
+    if status == "completed" || status == "validated" {
+        let responses = storage::get_responses(&database, &inspection_id).unwrap_or_default();
+        let resps_map: std::collections::HashMap<String, serde_json::Value> = responses.iter().map(|r| {
+            (r.criterion_id.to_string(), serde_json::json!({
+                "conforme": r.conforme,
+                "observation": r.observation,
+                "severity": r.severity,
+                "factor": r.factor,
+                "factor_justification": r.factor_justification,
+                "immediate_danger": r.immediate_danger
+            }))
+        }).collect();
+        let resps_json = serde_json::to_string(&resps_map).unwrap_or_default();
+        storage::create_report_snapshot(&database, &inspection_id, &status, &resps_json, "{}", Some(&user.id), Some(&user.full_name)).ok();
+    }
+
     storage::set_status(&database, &inspection_id, &status, Some(&user.id))?;
     audit_database.log_user_action(&user.id, &user.username,
         &format!("SET_STATUS_{}", status.to_uppercase()), "inspection", &inspection_id, "");
@@ -558,6 +578,100 @@ fn cmd_export_audit_json(audit_database: State<AuditDatabase>, token: String, da
     audit_database.export_audit_json(&filter)
 }
 
+// ════════════════════ REPORT SNAPSHOTS ════════════════════
+
+#[tauri::command]
+fn cmd_list_report_snapshots(database: State<Database>, token: String, inspection_id: String) -> Result<Vec<ReportSnapshot>, String> {
+    users::validate_session(&database, &token)?;
+    storage::list_report_snapshots(&database, &inspection_id)
+}
+
+#[tauri::command]
+fn cmd_get_report_snapshot(database: State<Database>, token: String, snapshot_id: String) -> Result<Option<ReportSnapshot>, String> {
+    users::validate_session(&database, &token)?;
+    storage::get_report_snapshot(&database, &snapshot_id)
+}
+
+#[tauri::command]
+fn cmd_create_manual_snapshot(database: State<Database>, audit_database: State<AuditDatabase>, token: String, inspection_id: String, responses: serde_json::Value, meta: serde_json::Value) -> Result<u32, String> {
+    let user = users::validate_session(&database, &token)?;
+    let resps_json = serde_json::to_string(&responses).unwrap_or_default();
+    let meta_json = serde_json::to_string(&meta).unwrap_or_default();
+    let version = storage::create_report_snapshot(&database, &inspection_id, "manual", &resps_json, &meta_json, Some(&user.id), Some(&user.full_name))?;
+    audit_database.log_user_action(&user.id, &user.username,
+        "CREATE_MANUAL_SNAPSHOT", "inspection", &inspection_id, &format!("v{}", version));
+    Ok(version)
+}
+
+// ════════════════════ PLANNING ════════════════════
+
+#[tauri::command]
+fn cmd_list_planning(database: State<Database>, token: String) -> Result<Vec<PlanningEntry>, String> {
+    users::validate_session(&database, &token)?;
+    storage::list_planning(&database)
+}
+
+#[tauri::command]
+fn cmd_create_planning(database: State<Database>, audit_database: State<AuditDatabase>, token: String, req: CreatePlanningRequest) -> Result<String, String> {
+    let user = require_role(&database, &token, &["admin", "lead_inspector"])?;
+    let id = storage::create_planning(&database, &req, &user.id, &user.full_name)?;
+    audit_database.log_user_action(&user.id, &user.username,
+        "CREATE_PLANNING", "planning", &id, &req.establishment);
+    Ok(id)
+}
+
+#[tauri::command]
+fn cmd_update_planning(database: State<Database>, audit_database: State<AuditDatabase>, token: String, planning_id: String, req: UpdatePlanningRequest) -> Result<(), String> {
+    let user = require_role(&database, &token, &["admin", "lead_inspector"])?;
+    storage::update_planning(&database, &planning_id, &req)?;
+    audit_database.log_user_action(&user.id, &user.username,
+        "UPDATE_PLANNING", "planning", &planning_id, "");
+    Ok(())
+}
+
+#[tauri::command]
+fn cmd_delete_planning(database: State<Database>, audit_database: State<AuditDatabase>, token: String, planning_id: String) -> Result<(), String> {
+    let user = require_role(&database, &token, &["admin", "lead_inspector"])?;
+    storage::delete_planning(&database, &planning_id)?;
+    audit_database.log_user_action(&user.id, &user.username,
+        "DELETE_PLANNING", "planning", &planning_id, "");
+    Ok(())
+}
+
+// ════════════════════ INDISPONIBILITES ════════════════════
+
+#[tauri::command]
+fn cmd_list_indisponibilites(database: State<Database>, token: String) -> Result<Vec<Indisponibilite>, String> {
+    users::validate_session(&database, &token)?;
+    storage::list_indisponibilites(&database)
+}
+
+#[tauri::command]
+fn cmd_create_indisponibilite(database: State<Database>, token: String, req: CreateIndispoRequest) -> Result<String, String> {
+    require_role(&database, &token, &["admin", "lead_inspector"])?;
+    storage::create_indisponibilite(&database, &req)
+}
+
+#[tauri::command]
+fn cmd_delete_indisponibilite(database: State<Database>, token: String, indisponibilite_id: String) -> Result<(), String> {
+    require_role(&database, &token, &["admin", "lead_inspector"])?;
+    storage::delete_indisponibilite(&database, &indisponibilite_id)
+}
+
+// ════════════════════ SETTINGS ════════════════════
+
+#[tauri::command]
+fn cmd_get_settings(database: State<Database>, token: String) -> Result<std::collections::HashMap<String, serde_json::Value>, String> {
+    users::validate_session(&database, &token)?;
+    storage::get_settings(&database)
+}
+
+#[tauri::command]
+fn cmd_save_settings(database: State<Database>, token: String, settings: std::collections::HashMap<String, serde_json::Value>) -> Result<(), String> {
+    require_role(&database, &token, &["admin", "lead_inspector"])?;
+    storage::save_settings(&database, &settings)
+}
+
 // ════════════════════ MAIN ════════════════════
 
 fn main() {
@@ -625,6 +739,14 @@ fn main() {
             cmd_set_inspection_status, cmd_delete_inspection,
             // Audit
             cmd_query_audit, cmd_count_audit, cmd_export_audit_csv, cmd_export_audit_json,
+            // Report snapshots
+            cmd_list_report_snapshots, cmd_get_report_snapshot, cmd_create_manual_snapshot,
+            // Planning
+            cmd_list_planning, cmd_create_planning, cmd_update_planning, cmd_delete_planning,
+            // Indisponibilites
+            cmd_list_indisponibilites, cmd_create_indisponibilite, cmd_delete_indisponibilite,
+            // Settings
+            cmd_get_settings, cmd_save_settings,
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors du lancement de l'application");

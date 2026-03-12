@@ -304,6 +304,284 @@ pub fn get_inspection(db: &Database, inspection_id: &str) -> Result<SavedInspect
     Ok(insp)
 }
 
+// ═══════════════════ REPORT SNAPSHOTS ═══════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportSnapshot {
+    pub id: String,
+    pub inspection_id: String,
+    pub version: u32,
+    pub status: String,
+    pub responses: serde_json::Value,
+    pub meta: serde_json::Value,
+    pub created_by: Option<String>,
+    pub created_by_name: Option<String>,
+    pub created_at: String,
+}
+
+pub fn list_report_snapshots(db: &Database, inspection_id: &str) -> Result<Vec<ReportSnapshot>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(
+        "SELECT id, inspection_id, version, status, responses_json, meta_json, created_by, created_by_name, created_at
+         FROM report_snapshots WHERE inspection_id = ?1 ORDER BY version DESC"
+    ).map_err(|e| e.to_string())?;
+
+    let snapshots = stmt.query_map(params![inspection_id], |row| {
+        let resps_str: String = row.get::<_,String>(4).unwrap_or_default();
+        let meta_str: String = row.get::<_,String>(5).unwrap_or_default();
+        Ok(ReportSnapshot {
+            id: row.get(0)?,
+            inspection_id: row.get(1)?,
+            version: row.get(2)?,
+            status: row.get(3)?,
+            responses: serde_json::from_str(&resps_str).unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+            meta: serde_json::from_str(&meta_str).unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+            created_by: row.get(6)?,
+            created_by_name: row.get(7)?,
+            created_at: row.get::<_,String>(8).unwrap_or_default(),
+        })
+    }).map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect();
+
+    Ok(snapshots)
+}
+
+pub fn get_report_snapshot(db: &Database, snapshot_id: &str) -> Result<Option<ReportSnapshot>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let result = conn.query_row(
+        "SELECT id, inspection_id, version, status, responses_json, meta_json, created_by, created_by_name, created_at
+         FROM report_snapshots WHERE id = ?1",
+        params![snapshot_id],
+        |row| {
+            let resps_str: String = row.get::<_,String>(4).unwrap_or_default();
+            let meta_str: String = row.get::<_,String>(5).unwrap_or_default();
+            Ok(ReportSnapshot {
+                id: row.get(0)?,
+                inspection_id: row.get(1)?,
+                version: row.get(2)?,
+                status: row.get(3)?,
+                responses: serde_json::from_str(&resps_str).unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+                meta: serde_json::from_str(&meta_str).unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+                created_by: row.get(6)?,
+                created_by_name: row.get(7)?,
+                created_at: row.get::<_,String>(8).unwrap_or_default(),
+            })
+        }
+    );
+    match result {
+        Ok(s) => Ok(Some(s)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+pub fn create_report_snapshot(db: &Database, inspection_id: &str, status: &str, responses_json: &str, meta_json: &str, user_id: Option<&str>, user_name: Option<&str>) -> Result<u32, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let version: u32 = conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) + 1 FROM report_snapshots WHERE inspection_id = ?1",
+        params![inspection_id], |r| r.get(0)
+    ).unwrap_or(1);
+    let id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO report_snapshots (id, inspection_id, version, status, responses_json, meta_json, created_by, created_by_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![id, inspection_id, version, status, responses_json, meta_json, user_id, user_name],
+    ).map_err(|e| format!("Erreur snapshot: {}", e))?;
+    Ok(version)
+}
+
+// ═══════════════════ PLANNING ═══════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanningEntry {
+    pub id: String,
+    pub date_debut: Option<String>,
+    pub date_fin: Option<String>,
+    pub establishment: Option<String>,
+    pub inspection_type: Option<String>,
+    pub departement: Option<String>,
+    pub commune: Option<String>,
+    pub priorite: Option<String>,
+    pub inspectors: Vec<String>,
+    pub notes: Option<String>,
+    pub status: String,
+    pub created_by: Option<String>,
+    pub created_by_name: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePlanningRequest {
+    pub date_debut: String,
+    pub date_fin: Option<String>,
+    pub establishment: String,
+    pub inspection_type: Option<String>,
+    pub departement: Option<String>,
+    pub commune: Option<String>,
+    pub priorite: Option<String>,
+    pub inspectors: Vec<String>,
+    pub notes: Option<String>,
+}
+
+pub fn list_planning(db: &Database) -> Result<Vec<PlanningEntry>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(
+        "SELECT id, date_debut, date_fin, establishment, inspection_type, departement, commune, priorite, inspectors, notes, status, created_by, created_by_name, created_at
+         FROM planning ORDER BY date_debut"
+    ).map_err(|e| e.to_string())?;
+
+    let entries = stmt.query_map([], |row| {
+        let insp_str: String = row.get::<_,String>(8).unwrap_or_default();
+        let inspectors: Vec<String> = serde_json::from_str(&insp_str).unwrap_or_default();
+        Ok(PlanningEntry {
+            id: row.get(0)?,
+            date_debut: row.get(1)?,
+            date_fin: row.get(2)?,
+            establishment: row.get(3)?,
+            inspection_type: row.get(4)?,
+            departement: row.get(5)?,
+            commune: row.get(6)?,
+            priorite: row.get(7)?,
+            inspectors,
+            notes: row.get(9)?,
+            status: row.get::<_,String>(10).unwrap_or_else(|_| "planifie".into()),
+            created_by: row.get(11)?,
+            created_by_name: row.get(12)?,
+            created_at: row.get::<_,String>(13).unwrap_or_default(),
+        })
+    }).map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect();
+    Ok(entries)
+}
+
+pub fn create_planning(db: &Database, req: &CreatePlanningRequest, user_id: &str, user_name: &str) -> Result<String, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let inspectors_json = serde_json::to_string(&req.inspectors).unwrap_or_default();
+    conn.execute(
+        "INSERT INTO planning (id, date_debut, date_fin, establishment, inspection_type, departement, commune, priorite, inspectors, notes, status, created_by, created_by_name)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'planifie',?11,?12)",
+        params![id, req.date_debut, req.date_fin, req.establishment, req.inspection_type, req.departement, req.commune, req.priorite, inspectors_json, req.notes, user_id, user_name],
+    ).map_err(|e| format!("Erreur planning: {}", e))?;
+    Ok(id)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdatePlanningRequest {
+    pub status: Option<String>,
+}
+
+pub fn update_planning(db: &Database, planning_id: &str, req: &UpdatePlanningRequest) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    if let Some(ref status) = req.status {
+        conn.execute(
+            "UPDATE planning SET status = ?1, updated_at = datetime('now','localtime') WHERE id = ?2",
+            params![status, planning_id],
+        ).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub fn delete_planning(db: &Database, planning_id: &str) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM planning WHERE id = ?1", params![planning_id]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ═══════════════════ INDISPONIBILITES ═══════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Indisponibilite {
+    pub id: String,
+    pub inspecteur: String,
+    pub date_debut: String,
+    pub date_fin: Option<String>,
+    pub motif: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateIndispoRequest {
+    pub inspecteur: String,
+    pub date_debut: String,
+    pub date_fin: Option<String>,
+    pub motif: Option<String>,
+}
+
+pub fn list_indisponibilites(db: &Database) -> Result<Vec<Indisponibilite>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(
+        "SELECT id, inspecteur, date_debut, date_fin, motif, created_at FROM indisponibilites ORDER BY date_debut"
+    ).map_err(|e| e.to_string())?;
+    let entries = stmt.query_map([], |row| {
+        Ok(Indisponibilite {
+            id: row.get(0)?,
+            inspecteur: row.get(1)?,
+            date_debut: row.get(2)?,
+            date_fin: row.get(3)?,
+            motif: row.get(4)?,
+            created_at: row.get::<_,String>(5).unwrap_or_default(),
+        })
+    }).map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect();
+    Ok(entries)
+}
+
+pub fn create_indisponibilite(db: &Database, req: &CreateIndispoRequest) -> Result<String, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO indisponibilites (id, inspecteur, date_debut, date_fin, motif)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, req.inspecteur, req.date_debut, req.date_fin, req.motif],
+    ).map_err(|e| format!("Erreur indispo: {}", e))?;
+    Ok(id)
+}
+
+pub fn delete_indisponibilite(db: &Database, indispo_id: &str) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM indisponibilites WHERE id = ?1", params![indispo_id]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ═══════════════════ SETTINGS ═══════════════════
+
+pub fn get_settings(db: &Database) -> Result<std::collections::HashMap<String, serde_json::Value>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT key, value FROM app_settings").map_err(|e| e.to_string())?;
+    let mut settings = std::collections::HashMap::new();
+    let rows = stmt.query_map([], |row| {
+        let key: String = row.get(0)?;
+        let val: String = row.get(1)?;
+        Ok((key, val))
+    }).map_err(|e| e.to_string())?;
+    for row in rows.flatten() {
+        let parsed: serde_json::Value = serde_json::from_str(&row.1).unwrap_or(serde_json::Value::String(row.1.clone()));
+        settings.insert(row.0, parsed);
+    }
+    Ok(settings)
+}
+
+pub fn save_settings(db: &Database, settings: &std::collections::HashMap<String, serde_json::Value>) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    for (key, value) in settings {
+        let val_str = match value {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Number(n) => n.to_string(),
+            other => serde_json::to_string(other).unwrap_or_default(),
+        };
+        conn.execute(
+            "INSERT INTO app_settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = ?2",
+            params![key, val_str],
+        ).map_err(|e| format!("Erreur settings: {}", e))?;
+    }
+    Ok(())
+}
+
 // ═══════════════════ TESTS UNITAIRES ═══════════════════
 
 #[cfg(test)]

@@ -311,6 +311,20 @@ function fallback(cmd, a) {
     // ═══════════ SNAPSHOTS RAPPORT ═══════════
     case 'cmd_list_report_snapshots': return DB.reportSnapshots.filter(s=>s.inspection_id===a.inspectionId).sort((x,y)=>y.version-x.version);
     case 'cmd_get_report_snapshot': return DB.reportSnapshots.find(s=>s.id===a.snapshotId) || null;
+    case 'cmd_create_manual_snapshot': {
+      const uid=DB.sessions[a.token]; if(!uid) throw 'Non authentifie';
+      const u=DB.users.find(x=>x.id===uid);
+      const version = (DB.reportSnapshots.filter(s=>s.inspection_id===a.inspectionId).length||0)+1;
+      DB.reportSnapshots.push({
+        id: crypto.randomUUID(), inspection_id: a.inspectionId, version,
+        status: 'manual', responses: JSON.parse(JSON.stringify(a.responses||{})),
+        meta: JSON.parse(JSON.stringify(a.meta||{})),
+        created_by: uid, created_by_name: u?.full_name||'—',
+        created_at: now()
+      });
+      addAudit(uid, u?.username, 'CREATE_MANUAL_SNAPSHOT','inspection',a.inspectionId,'v'+version);
+      saveDB(); return version;
+    }
 
     // ═══════════ PLANNING ═══════════
     case 'cmd_list_planning': return DB.planning.sort((x,y)=>(x.date_debut||'').localeCompare(y.date_debut||''));

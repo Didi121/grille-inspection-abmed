@@ -5,6 +5,7 @@ import { invoke } from './api.js';
 import { esc } from './utils.js';
 import { INSPECTORS, getInspectorDisplay } from './inspectors-data.js';
 import { DEPARTEMENTS, getCommunesByDept } from './benin-data.js';
+import { INSPECTION_TYPES, getAllTypesFlat, getTypeLabel, getTypeShortLabel } from './inspection-types.js';
 
 const MOIS = ['Janvier','Fevrier','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Decembre'];
 const JOURS = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
@@ -40,27 +41,40 @@ export async function renderPlanning() {
   // Objectif annuel et inspections reelles
   const year = currentYear;
   const objectifAnnuel = parseInt(appSettings['objectif_' + year]) || 0;
-  let inspRealisees = 0;
+
+  // Charger toutes les inspections une seule fois
+  let allInspYear = [];
   try {
     const allInsp = await invoke('cmd_list_inspections', { token: state.session.token, myOnly: false, status: null }) || [];
-    inspRealisees = allInsp.filter(i => i.date_inspection && i.date_inspection.startsWith(String(year)) && ['completed', 'validated'].includes(i.status)).length;
+    allInspYear = allInsp.filter(i => i.date_inspection && i.date_inspection.startsWith(String(year)));
   } catch(_){}
+
+  const inspRealisees = allInspYear.filter(i => ['completed', 'validated'].includes(i.status)).length;
   const planifieesAnnee = planningList.filter(p => p.date_debut && p.date_debut.startsWith(String(year))).length;
   const pctRealise = objectifAnnuel > 0 ? Math.min((inspRealisees / objectifAnnuel * 100), 100).toFixed(0) : 0;
   const pctPlanifie = objectifAnnuel > 0 ? Math.min(((inspRealisees + planifie + enCours) / objectifAnnuel * 100), 100).toFixed(0) : 0;
+
+  // Stats par type d'inspection
+  const allTypes = getAllTypesFlat();
+  const typeStats = {};
+  allTypes.forEach(t => {
+    const objKey = 'objectif_' + year + '_' + t.code;
+    const obj = parseInt(appSettings[objKey]) || 0;
+    const real = allInspYear.filter(i => ['completed', 'validated'].includes(i.status) && i.inspection_type === t.code).length;
+    const plan = planningList.filter(p => p.date_debut && p.date_debut.startsWith(String(year)) && p.inspection_type === t.code && ['planifie', 'en_cours'].includes(p.status)).length;
+    typeStats[t.code] = { obj, real, plan, label: t.label, groupe: t.groupe, groupeCode: t.groupeCode };
+  });
+  const hasTypeObjectifs = Object.values(typeStats).some(s => s.obj > 0);
 
   // Evolution trimestrielle
   const trimLabels = ['T1 (Jan-Mar)', 'T2 (Avr-Jun)', 'T3 (Jul-Sep)', 'T4 (Oct-Dec)'];
   const trimRealise = [0, 0, 0, 0];
   const trimPlanifie = [0, 0, 0, 0];
-  try {
-    const allInsp = await invoke('cmd_list_inspections', { token: state.session.token, myOnly: false, status: null }) || [];
-    allInsp.filter(i => i.date_inspection && i.date_inspection.startsWith(String(year))).forEach(i => {
-      const m = parseInt(i.date_inspection.substring(5, 7));
-      const q = Math.floor((m - 1) / 3);
-      if (['completed', 'validated'].includes(i.status)) trimRealise[q]++;
-    });
-  } catch(_){}
+  allInspYear.forEach(i => {
+    const m = parseInt(i.date_inspection.substring(5, 7));
+    const q = Math.floor((m - 1) / 3);
+    if (['completed', 'validated'].includes(i.status)) trimRealise[q]++;
+  });
   planningList.filter(p => p.date_debut && p.date_debut.startsWith(String(year))).forEach(p => {
     const m = parseInt(p.date_debut.substring(5, 7));
     const q = Math.floor((m - 1) / 3);
@@ -141,6 +155,56 @@ export async function renderPlanning() {
             }).join('')}
           </div>
         </div>
+        <!-- Ventilation par type d'inspection -->
+        ${hasTypeObjectifs ? `
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;margin-bottom:10px">Objectifs par type d'inspection — ${year}</div>
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="background:var(--gray-50)">
+                <th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--border)">Type d'inspection</th>
+                <th style="text-align:center;padding:6px 4px;border-bottom:2px solid var(--border);width:60px">Objectif</th>
+                <th style="text-align:center;padding:6px 4px;border-bottom:2px solid var(--border);width:60px">Realisees</th>
+                <th style="text-align:center;padding:6px 4px;border-bottom:2px solid var(--border);width:60px">Planifiees</th>
+                <th style="text-align:center;padding:6px 4px;border-bottom:2px solid var(--border);width:60px">Restant</th>
+                <th style="padding:6px 8px;border-bottom:2px solid var(--border);min-width:120px">Progression</th>
+              </tr>
+            </thead>
+            <tbody>
+            ${INSPECTION_TYPES.map(g => {
+              const groupTypes = g.sousTypes.filter(st => typeStats[st.code]?.obj > 0);
+              if (!groupTypes.length) return '';
+              const gReal = groupTypes.reduce((s, st) => s + typeStats[st.code].real, 0);
+              const gObj = groupTypes.reduce((s, st) => s + typeStats[st.code].obj, 0);
+              const gPlan = groupTypes.reduce((s, st) => s + typeStats[st.code].plan, 0);
+              return `<tr style="background:var(--gray-50)">
+                <td colspan="6" style="padding:6px 8px;font-weight:700;font-size:11px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">${esc(g.groupe)} <span style="font-weight:400;font-size:10px;margin-left:4px">(${gReal}/${gObj})</span></td>
+              </tr>` +
+              groupTypes.map(st => {
+                const s = typeStats[st.code];
+                const rest = Math.max(s.obj - s.real - s.plan, 0);
+                const pct = s.obj > 0 ? Math.min((s.real / s.obj * 100), 100).toFixed(0) : 0;
+                const pctP = s.obj > 0 ? Math.min(((s.real + s.plan) / s.obj * 100), 100).toFixed(0) : 0;
+                return `<tr style="border-bottom:1px solid var(--border)">
+                  <td style="padding:5px 8px 5px 20px;font-size:12px">${esc(st.label.split(' — ')[1] || st.label)}</td>
+                  <td style="text-align:center;padding:5px 4px;font-weight:700;color:var(--accent)">${s.obj}</td>
+                  <td style="text-align:center;padding:5px 4px;font-weight:600;color:#16a34a">${s.real}</td>
+                  <td style="text-align:center;padding:5px 4px;color:#2563eb">${s.plan}</td>
+                  <td style="text-align:center;padding:5px 4px;color:${rest > 0 ? '#d97706' : '#16a34a'}">${rest}</td>
+                  <td style="padding:5px 8px">
+                    <div style="height:10px;background:var(--gray-100);border-radius:5px;overflow:hidden;position:relative">
+                      <div style="height:100%;width:${pctP}%;background:#bfdbfe;border-radius:5px;position:absolute;top:0;left:0"></div>
+                      <div style="height:100%;width:${pct}%;background:#16a34a;border-radius:5px;position:absolute;top:0;left:0"></div>
+                    </div>
+                    <div style="font-size:9px;color:var(--text-muted);margin-top:2px;text-align:right">${pct}%</div>
+                  </td>
+                </tr>`;
+              }).join('');
+            }).join('')}
+            </tbody>
+          </table>
+        </div>
+        ` : ''}
       ` : `
         <div style="text-align:center;padding:20px;color:var(--text-muted)">
           <p style="font-size:14px">Aucun objectif defini pour ${year}</p>
@@ -188,7 +252,7 @@ export async function renderPlanning() {
           return `<tr>
             <td class="mono" style="font-size:11px;white-space:nowrap">${fmtD(p.date_debut)}${p.date_fin ? ' → ' + fmtD(p.date_fin) : ''}</td>
             <td><strong>${esc(p.establishment || '—')}</strong></td>
-            <td>${p.inspection_type || '—'}</td>
+            <td style="font-size:12px">${getTypeLabel(p.inspection_type) || '—'}</td>
             <td>${p.departement || '—'}</td>
             <td style="font-size:12px">${(p.inspectors || []).join(', ') || '—'}</td>
             <td><span style="font-size:11px;padding:3px 8px;font-weight:600;background:${statusColors[p.status] || '#9ca3af'}20;color:${statusColors[p.status] || '#9ca3af'};border:1px solid ${statusColors[p.status] || '#9ca3af'}40">${statusLabels[p.status] || p.status}</span></td>
@@ -374,7 +438,7 @@ export function showNewPlanningModal() {
       <div class="field"><label>Date debut <span class="required">*</span></label><input type="date" id="planDateDebut" required/></div>
       <div class="field"><label>Date fin</label><input type="date" id="planDateFin"/></div>
       <div class="field" style="grid-column:1/-1"><label>Etablissement <span class="required">*</span></label><input id="planEstab" placeholder="Nom de l'etablissement"/></div>
-      <div class="field"><label>Type d'inspection</label><select id="planType"><option>Routine</option><option>Enquete</option><option>Plaintes/reclamations</option><option>A la demande</option><option>Pre-ouverture</option><option>Suivi</option><option>Visite de conformite</option></select></div>
+      <div class="field"><label>Type d'inspection</label><select id="planType">${INSPECTION_TYPES.map(g => '<optgroup label="' + esc(g.groupe) + '">' + g.sousTypes.map(st => '<option value="' + st.code + '">' + esc(st.label) + '</option>').join('') + '</optgroup>').join('')}</select></div>
       <div class="field"><label>Departement</label><select id="planDept" onchange="planDeptChange()"><option value="">—</option>${deptOptions}</select></div>
       <div class="field"><label>Commune</label><select id="planCommune"><option value="">—</option></select></div>
       <div class="field"><label>Priorite</label><select id="planPriorite"><option value="normale">Normale</option><option value="haute">Haute</option><option value="urgente">Urgente</option></select></div>
@@ -494,39 +558,107 @@ export function showObjectifModal() {
   const year = currentYear;
   const current = appSettings['objectif_' + year] || '';
   const prevYear = appSettings['objectif_' + (year - 1)] || '';
-  const html = `<div style="max-width:420px">
-    <h3>Objectif annuel d'inspections</h3>
-    <p style="font-size:12px;color:var(--text-muted);margin:8px 0 16px">Definissez le nombre d'inspections prevues pour l'annee. Cet objectif permet de suivre la progression et d'anticiper la charge de travail.</p>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+
+  // Construire les lignes par type d'inspection
+  const typeRows = INSPECTION_TYPES.map(g => {
+    return `<tr><td colspan="2" style="padding:8px 6px 4px;font-weight:700;font-size:11px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border);background:var(--gray-50)">${esc(g.groupe)}</td></tr>` +
+    g.sousTypes.map(st => {
+      const val = appSettings['objectif_' + year + '_' + st.code] || '';
+      const shortLabel = st.label.split(' — ')[1] || st.label;
+      return `<tr>
+        <td style="padding:4px 6px 4px 16px;font-size:12px;border-bottom:1px solid #f1f5f9">${esc(shortLabel)}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;width:80px">
+          <input type="number" min="0" max="999" value="${val}" placeholder="0" class="obj-type-input" data-code="${st.code}" style="width:100%;text-align:center;font-size:13px;font-weight:600;padding:4px;border:1px solid var(--border)"/>
+        </td>
+      </tr>`;
+    }).join('');
+  }).join('');
+
+  const html = `<div style="max-width:520px">
+    <h3>Objectifs annuels d'inspections — ${year}</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin:8px 0 16px">Definissez le nombre total et la ventilation par type. Les objectifs par type permettent un suivi detaille conforme a la procedure IP-PC-0001.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
       <div class="field">
-        <label>Objectif ${year} <span class="required">*</span></label>
-        <input type="number" id="objAnnuel" min="1" max="9999" value="${current}" placeholder="Ex: 200" style="font-size:18px;font-weight:700;text-align:center"/>
+        <label>Objectif global ${year} <span class="required">*</span></label>
+        <input type="number" id="objAnnuel" min="0" max="9999" value="${current}" placeholder="Auto" style="font-size:18px;font-weight:700;text-align:center;background:var(--gray-50)" readonly title="Calcule automatiquement depuis la ventilation par type"/>
       </div>
       <div class="field">
         <label>Objectif ${year - 1} (ref.)</label>
         <input type="number" id="objPrev" min="0" max="9999" value="${prevYear}" placeholder="—"/>
       </div>
     </div>
+
+    <div style="border-top:1px solid var(--border);padding-top:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:600">Ventilation par type</div>
+        <div style="font-size:11px;color:var(--text-muted)" id="objTypeSum">Total types : 0</div>
+      </div>
+      <div style="max-height:300px;overflow-y:auto;border:1px solid var(--border)">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:var(--gray-50)">
+            <th style="text-align:left;padding:6px;font-size:11px;border-bottom:1px solid var(--border)">Type</th>
+            <th style="text-align:center;padding:6px;font-size:11px;border-bottom:1px solid var(--border);width:80px">Objectif</th>
+          </tr></thead>
+          <tbody>${typeRows}</tbody>
+        </table>
+      </div>
+      <p style="font-size:10px;color:var(--text-muted);margin-top:6px">La somme des objectifs par type peut differer de l'objectif global. Les types sans objectif (0 ou vide) ne seront pas affiches dans le suivi.</p>
+    </div>
+
     <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
       <button class="btn-sm" onclick="closeModal()">Annuler</button>
       <button class="btn-primary" style="width:auto;padding:8px 20px" onclick="saveObjectif()">Enregistrer</button>
     </div>
   </div>`;
   window.openModal(html);
+
+  // Calculer la somme initiale
+  setTimeout(() => recalcObjTotal(), 50);
+}
+
+export function recalcObjTotal() {
+  const inputs = document.querySelectorAll('.obj-type-input');
+  let sum = 0;
+  inputs.forEach(inp => { sum += parseInt(inp.value) || 0; });
+  const el = document.getElementById('objTypeSum');
+  if (el) el.textContent = 'Total types : ' + sum;
+  // Mettre a jour l'objectif global automatiquement
+  const objGlobal = document.getElementById('objAnnuel');
+  if (objGlobal) objGlobal.value = sum || '';
+  // Attacher les listeners si pas encore fait
+  inputs.forEach(inp => {
+    if (!inp.dataset.listening) {
+      inp.addEventListener('input', recalcObjTotal);
+      inp.dataset.listening = '1';
+    }
+  });
 }
 
 export async function saveObjectif() {
   const year = currentYear;
   const val = document.getElementById('objAnnuel').value;
   const prev = document.getElementById('objPrev').value;
-  if (!val || parseInt(val) < 1) { alert('Veuillez saisir un objectif valide (minimum 1)'); return; }
+  // Verifier qu'au moins un type a un objectif > 0
+  const typeInputs = document.querySelectorAll('.obj-type-input');
+  let typeSum = 0;
+  typeInputs.forEach(inp => { typeSum += parseInt(inp.value) || 0; });
+  if (typeSum < 1) { alert('Veuillez definir au moins un objectif par type d\'inspection'); return; }
   try {
     const settings = {};
-    settings['objectif_' + year] = parseInt(val);
+    settings['objectif_' + year] = typeSum;
     if (prev) settings['objectif_' + (year - 1)] = parseInt(prev);
+
+    // Sauvegarder les objectifs par type
+    document.querySelectorAll('.obj-type-input').forEach(inp => {
+      const code = inp.dataset.code;
+      const v = parseInt(inp.value) || 0;
+      settings['objectif_' + year + '_' + code] = v;
+    });
+
     await invoke('cmd_save_settings', { token: state.session.token, settings });
     window.closeModal();
-    if (window.showToast) window.showToast('Objectif ' + year + ' enregistre : ' + val + ' inspections', 'info');
+    if (window.showToast) window.showToast('Objectifs ' + year + ' enregistres', 'info');
     renderPlanning();
   } catch (e) { alert('Erreur: ' + e); }
 }

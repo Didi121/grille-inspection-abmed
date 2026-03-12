@@ -257,35 +257,195 @@ export async function saveSuiviMeta() {
 export async function showReportVersions() {
   if(!state.currentInspectionId) return;
   try {
-    const snapshots = await invoke('cmd_list_report_snapshots',{token:state.session.token, inspectionId:state.currentInspectionId});
+    const snapshots = await invoke('cmd_list_report_snapshots',{token:state.session.token, inspectionId:state.currentInspectionId}) || [];
+    const role = state.session?.user?.role;
+    const canSnapshot = ['admin','lead_inspector','inspector'].includes(role);
+
     if(!snapshots.length) {
-      window.openModal('<div><h3>Historique des versions</h3><p style="color:var(--text-muted);margin-top:12px">Aucune version sauvegardee.<br/><small>Un snapshot est cree automatiquement quand l\'inspection est marquee "Terminee" ou "Validee".</small></p><div style="text-align:right;margin-top:16px"><button class="btn-sm" onclick="closeModal()">Fermer</button></div></div>');
+      window.openModal(`<div style="max-width:420px">
+        <h3>Historique des versions</h3>
+        <p style="color:var(--text-muted);margin-top:12px">Aucune version sauvegardee.</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Un snapshot est cree automatiquement quand l'inspection est marquee "Terminee" ou "Validee".</p>
+        <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+          ${canSnapshot ? '<button class="btn-primary" style="width:auto;padding:8px 16px;font-size:13px" onclick="createManualSnapshot()">Creer un snapshot maintenant</button>' : ''}
+          <button class="btn-sm" onclick="closeModal()">Fermer</button>
+        </div>
+      </div>`);
       return;
     }
-    const html = `<div style="max-width:500px">
+
+    // Calculer stats pour chaque snapshot
+    const rows = snapshots.map(s => {
+      const resps = s.responses || {};
+      const respCount = Object.keys(resps).length;
+      const confCount = Object.values(resps).filter(r=>r.conforme===true).length;
+      const ncCount = Object.values(resps).filter(r=>r.conforme===false).length;
+      const naCount = Object.values(resps).filter(r=>r.conforme==='na').length;
+      const rate = (confCount + ncCount) > 0 ? ((confCount / (confCount + ncCount)) * 100).toFixed(0) : '—';
+      const statusLabels = { completed: 'Terminee', validated: 'Validee', manual: 'Manuel' };
+      const statusColors = { completed: '#d97706', validated: '#16a34a', manual: '#2563eb' };
+      const fmtDt = s.created_at ? s.created_at.substring(0,16).replace('T',' ') : '—';
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="font-weight:700;font-size:14px;text-align:center;padding:8px 6px">v${s.version}</td>
+        <td style="padding:8px 6px">
+          <div class="mono" style="font-size:11px">${fmtDt}</div>
+          <div style="font-size:10px;color:var(--text-muted)">${s.created_by_name||'—'}</div>
+        </td>
+        <td style="padding:8px 6px;text-align:center">
+          <span style="font-size:11px;padding:2px 8px;font-weight:600;background:${statusColors[s.status]||'#9ca3af'}20;color:${statusColors[s.status]||'#9ca3af'};border:1px solid ${statusColors[s.status]||'#9ca3af'}40">${statusLabels[s.status]||s.status}</span>
+        </td>
+        <td style="padding:8px 6px;font-size:12px;text-align:center">
+          <div>${respCount} rep.</div>
+          <div style="font-size:10px;color:var(--text-muted)">${confCount}C / ${ncCount}NC${naCount?' / '+naCount+'NA':''}</div>
+          <div style="font-size:10px;font-weight:600;color:${parseInt(rate)>=80?'#16a34a':parseInt(rate)>=50?'#d97706':'#dc2626'}">${rate}%</div>
+        </td>
+        <td style="padding:8px 6px;text-align:right">
+          <button class="btn-sm" style="font-size:10px;padding:4px 8px" onclick="viewSnapshotDetail('${s.id}')">Consulter</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    const html = `<div style="max-width:600px">
       <h3>Historique des versions du rapport</h3>
-      <p style="font-size:12px;color:var(--text-muted);margin:8px 0 16px">Un snapshot est cree a chaque changement de statut (terminee, validee)</p>
-      <table class="tbl" style="font-size:13px">
-        <thead><tr><th>V.</th><th>Date</th><th>Statut</th><th>Par</th><th>Reponses</th></tr></thead>
-        <tbody>
-        ${snapshots.map(s => {
-          const respCount = Object.keys(s.responses||{}).length;
-          const confCount = Object.values(s.responses||{}).filter(r=>r.conforme===true).length;
-          const ncCount = Object.values(s.responses||{}).filter(r=>r.conforme===false).length;
-          return `<tr>
-            <td style="font-weight:700">v${s.version}</td>
-            <td class="mono" style="font-size:11px">${s.created_at?.substring(0,16).replace('T',' ')||'—'}</td>
-            <td><span class="status-badge status-${s.status}">${s.status==='completed'?'Terminee':'Validee'}</span></td>
-            <td>${s.created_by_name||'—'}</td>
-            <td style="font-size:11px">${respCount} rep. (${confCount}C / ${ncCount}NC)</td>
-          </tr>`;
-        }).join('')}
-        </tbody>
-      </table>
-      <div style="text-align:right;margin-top:16px"><button class="btn-sm" onclick="closeModal()">Fermer</button></div>
+      <p style="font-size:12px;color:var(--text-muted);margin:8px 0 16px">Un snapshot est cree a chaque changement de statut (terminee, validee). ${snapshots.length} version(s) enregistree(s).</p>
+      <div style="max-height:350px;overflow-y:auto">
+        <table class="tbl" style="font-size:13px;width:100%">
+          <thead><tr>
+            <th style="width:50px">V.</th>
+            <th>Date / Auteur</th>
+            <th style="text-align:center">Statut</th>
+            <th style="text-align:center">Donnees</th>
+            <th style="text-align:right;width:80px"></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:space-between;align-items:center">
+        ${canSnapshot ? '<button class="btn-sm" style="font-size:11px" onclick="createManualSnapshot()">+ Snapshot manuel</button>' : '<div></div>'}
+        <button class="btn-sm" onclick="closeModal()">Fermer</button>
+      </div>
     </div>`;
     window.openModal(html);
-  } catch(e) { alert('Erreur: '+e); }
+  } catch(e) { alert('Erreur versioning: '+e); console.error(e); }
+}
+
+// Consulter le detail d'un snapshot
+export async function viewSnapshotDetail(snapshotId) {
+  try {
+    const snapshot = await invoke('cmd_get_report_snapshot',{token:state.session.token, snapshotId});
+    if(!snapshot) { alert('Snapshot introuvable'); return; }
+
+    const resps = snapshot.responses || {};
+    const respList = Object.values(resps);
+    const confCount = respList.filter(r=>r.conforme===true).length;
+    const ncCount = respList.filter(r=>r.conforme===false).length;
+    const naCount = respList.filter(r=>r.conforme==='na').length;
+    const answered = confCount + ncCount;
+    const rate = answered > 0 ? ((confCount / answered) * 100).toFixed(1) : '0';
+    const fmtDt = snapshot.created_at ? snapshot.created_at.substring(0,16).replace('T',' ') : '—';
+    const meta = snapshot.meta || {};
+    const statusLabels = { completed: 'Terminee', validated: 'Validee', manual: 'Manuel' };
+
+    // Trouver les ecarts (non conformes) avec le detail des criteres
+    const ecarts = [];
+    for (const [cid, r] of Object.entries(resps)) {
+      if (r.conforme === false) {
+        const criterion = state.allCriteria.find(c => String(c.id) === String(cid));
+        ecarts.push({
+          id: cid,
+          reference: criterion?.reference || '—',
+          description: criterion?.description || 'Critere #' + cid,
+          section: criterion?.sectionTitle || '—',
+          observation: r.observation || '',
+          severity: r.severity || criterion?.severity || 'majeur'
+        });
+      }
+    }
+
+    // Comparer avec la version actuelle
+    const currentResps = state.responses || {};
+    let diffCount = 0;
+    const allKeys = new Set([...Object.keys(resps), ...Object.keys(currentResps)]);
+    allKeys.forEach(k => {
+      const snapR = resps[k]?.conforme;
+      const currR = currentResps[k]?.conforme;
+      if (snapR !== currR) diffCount++;
+    });
+
+    const sevColors = { critique:'#dc2626', majeur:'#d97706', mineur:'#2563eb', info:'#6b7280' };
+    const sevLabels = { critique:'CRITIQUE', majeur:'MAJEUR', mineur:'MINEUR', info:'OBS' };
+
+    const html = `<div style="max-width:650px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <h3 style="margin:0">Snapshot v${snapshot.version}</h3>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:4px">${fmtDt} — ${snapshot.created_by_name||'—'} — ${statusLabels[snapshot.status]||snapshot.status}</p>
+        </div>
+        ${diffCount > 0 ? `<span style="font-size:11px;padding:4px 10px;background:#fef3c7;color:#92400e;font-weight:600;border:1px solid #fde68a">${diffCount} difference(s) avec la version actuelle</span>` : '<span style="font-size:11px;padding:4px 10px;background:#d1fae5;color:#065f46;font-weight:600;border:1px solid #a7f3d0">Identique a la version actuelle</span>'}
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px">
+        <div style="text-align:center;padding:8px;background:var(--gray-50);border:1px solid var(--border)">
+          <div style="font-size:18px;font-weight:700">${Object.keys(resps).length}</div>
+          <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Reponses</div>
+        </div>
+        <div style="text-align:center;padding:8px;background:var(--gray-50);border:1px solid var(--border)">
+          <div style="font-size:18px;font-weight:700;color:#16a34a">${confCount}</div>
+          <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Conformes</div>
+        </div>
+        <div style="text-align:center;padding:8px;background:var(--gray-50);border:1px solid var(--border)">
+          <div style="font-size:18px;font-weight:700;color:#dc2626">${ncCount}</div>
+          <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Non conformes</div>
+        </div>
+        <div style="text-align:center;padding:8px;background:var(--gray-50);border:1px solid var(--border)">
+          <div style="font-size:18px;font-weight:700;color:${parseInt(rate)>=80?'#16a34a':parseInt(rate)>=50?'#d97706':'#dc2626'}">${rate}%</div>
+          <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Conformite</div>
+        </div>
+      </div>
+
+      ${ecarts.length ? `
+        <div style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:600;margin-bottom:8px">Ecarts constates (${ecarts.length})</div>
+          <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border)">
+            ${ecarts.map(e => `<div style="padding:6px 8px;border-bottom:1px solid #f1f5f9;font-size:12px">
+              <span style="font-size:10px;padding:1px 5px;font-weight:700;color:${sevColors[e.severity]||'#d97706'};background:${sevColors[e.severity]||'#d97706'}15;border:1px solid ${sevColors[e.severity]||'#d97706'}30;margin-right:4px">${sevLabels[e.severity]||'MAJ'}</span>
+              <strong>${e.reference}</strong> — ${e.description.substring(0, 80)}${e.description.length>80?'...':''}
+              ${e.observation ? '<div style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic">' + e.observation.substring(0, 100) + '</div>' : ''}
+            </div>`).join('')}
+          </div>
+        </div>
+      ` : '<p style="font-size:12px;color:#16a34a;margin-bottom:12px">Aucun ecart constate dans cette version.</p>'}
+
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn-sm" onclick="showReportVersions()">Retour a la liste</button>
+        <button class="btn-sm" onclick="closeModal()">Fermer</button>
+      </div>
+    </div>`;
+    window.openModal(html);
+  } catch(e) { alert('Erreur: '+e); console.error(e); }
+}
+
+// Creer un snapshot manuel
+export async function createManualSnapshot() {
+  if(!state.currentInspectionId) return;
+  try {
+    const resps = {};
+    for (const [cid, r] of Object.entries(state.responses)) {
+      resps[cid] = JSON.parse(JSON.stringify(r));
+    }
+    let insp = null;
+    try { insp = await invoke('cmd_get_inspection',{token:state.session.token, inspectionId:state.currentInspectionId}); } catch(_){}
+
+    await invoke('cmd_create_manual_snapshot', {
+      token: state.session.token,
+      inspectionId: state.currentInspectionId,
+      responses: resps,
+      meta: insp?.extra_meta || {}
+    });
+    window.closeModal();
+    if(window.showToast) window.showToast('Snapshot cree avec succes', 'info');
+    showReportVersions();
+  } catch(e) { alert('Erreur: '+e); console.error(e); }
 }
 
 export async function setInspStatus(status) {

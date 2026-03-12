@@ -139,23 +139,61 @@ export async function viewReport(id) {
 export async function exportAllInspCSV() {
   try {
     const list = await invoke('cmd_list_inspections',{token:state.session.token, myOnly:false, status:null});
-    const headers = ['ID','Date','Etablissement','Type','Grille','Inspecteur','Statut','Departement','Commune'];
-    const rows = list.map(i => [
-      i.id?.substring(0,8) || '',
-      i.date_inspection || '',
-      (i.establishment || '').replace(/"/g, '""'),
-      i.inspection_type || '',
-      i.grid_id || '',
-      i.created_by_name || '',
-      i.status || '',
-      i.extra_meta?.departement || '',
-      i.extra_meta?.commune || ''
-    ]);
+    const headers = [
+      'ID','Date inspection','Etablissement','Type inspection','Grille',
+      'Inspecteur principal','Equipe inspection','Statut',
+      'Departement','Commune','Responsable/Promoteur',
+      'Debut mission','Fin mission',
+      'Date attendue envoi rapport','Date rapport preliminaire','Date rapport intermediaire',
+      'Date envoi rapport','Date attendue CAPA','Date retour CAPA','Date cloture',
+      'Proces-Verbal','Suite administrative','Delivrance acte',
+      'Criteres evalues','Conformes','Non conformes','Taux conformite (%)',
+      'Valide par','Date validation','Cree par','Date creation'
+    ];
+    const rows = list.map(i => {
+      const m = i.extra_meta || {};
+      const p = i.progress || {};
+      const rate = p.answered > 0 ? ((p.conforme / p.answered) * 100).toFixed(1) : '';
+      return [
+        i.id?.substring(0,8) || '',
+        i.date_inspection || '',
+        (i.establishment || '').replace(/"/g, '""'),
+        i.inspection_type || '',
+        i.grid_id || '',
+        (m.lead_inspector || i.created_by_name || '').replace(/"/g, '""'),
+        (i.inspectors || []).join(', ').replace(/"/g, '""'),
+        statusLabel(i.status),
+        m.departement || '',
+        m.commune || '',
+        (m.responsable || '').replace(/"/g, '""'),
+        m.periode_du || '',
+        m.periode_au || '',
+        m.date_rapport_attendue || '',
+        m.date_rapport_prelim || '',
+        m.date_rapport_interm || '',
+        m.date_envoi_rapport || '',
+        m.date_capa || '',
+        m.date_retour_capa || '',
+        m.date_cloture || '',
+        m.proces_verbal || '',
+        (m.suite_admin || '').replace(/"/g, '""'),
+        (m.acte || '').replace(/"/g, '""'),
+        p.answered || '',
+        p.conforme || '',
+        p.non_conforme || '',
+        rate,
+        i.validated_by_name || '',
+        i.validated_at || '',
+        i.created_by_name || '',
+        i.created_at || ''
+      ];
+    });
     const csv = [headers.join(';'), ...rows.map(r => r.map(v => `"${v}"`).join(';'))].join('\n');
     const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'inspections_' + new Date().toISOString().substring(0,10) + '.csv';
+    a.download = 'inspections_export_' + new Date().toISOString().substring(0,10) + '.csv';
     a.click();
+    if(window.showToast) window.showToast('Export CSV genere ('+list.length+' inspections)','info');
   } catch(e){ alert('Erreur export: '+e); }
 }

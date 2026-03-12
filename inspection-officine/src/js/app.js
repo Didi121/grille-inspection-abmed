@@ -171,12 +171,36 @@ function selectEstabSuggestion(nom, dept, commune, responsable) {
   }
 }
 
-function selectInspSuggestion(display) {
-  const inspInput = document.getElementById('mInsp');
-  if (!inspInput) return;
-  const current = inspInput.value.split(',').map(s => s.trim()).filter(Boolean);
-  if (!current.includes(display)) current.push(display);
-  inspInput.value = current.join(', ');
+function buildInspectorCheckboxes() {
+  const container = document.getElementById('mInspContainer');
+  if (!container) return;
+  container.innerHTML = INSPECTORS.map(insp => {
+    const display = getInspectorDisplay(insp);
+    return `<label style="display:flex;align-items:center;gap:6px;padding:4px 2px;cursor:pointer;font-size:13px;border-bottom:1px solid #f8fafc"
+      onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+      <input type="checkbox" value="${display}" onchange="updateInspSelection()" style="accent-color:var(--accent);width:16px;height:16px"/>
+      <span style="font-weight:600">${insp.nom}</span> <span style="color:#475569">${insp.prenom}</span>
+      <span style="margin-left:auto;font-size:10px;font-weight:700;color:#64748b;background:#f1f5f9;padding:1px 6px">${insp.initiales}</span>
+    </label>`;
+  }).join('');
+}
+
+function updateInspSelection() {
+  const container = document.getElementById('mInspContainer');
+  if (!container) return;
+  const checked = [...container.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
+  document.getElementById('mInsp').value = checked.join(', ');
+}
+
+function setInspCheckboxes(inspectors) {
+  const container = document.getElementById('mInspContainer');
+  if (!container) return;
+  container.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = false; });
+  if (!inspectors || !inspectors.length) return;
+  inspectors.forEach(name => {
+    const cb = [...container.querySelectorAll('input[type=checkbox]')].find(c => c.value === name);
+    if (cb) cb.checked = true;
+  });
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -196,20 +220,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     null
   );
 
-  // Autocomplete inspecteurs
-  setupAutocomplete('mInsp',
-    q => { const parts = q.split(','); const last = (parts[parts.length-1]||'').trim(); return searchInspectors(last); },
-    (insp, i) => {
-      const display = getInspectorDisplay(insp);
-      return `<div style="padding:6px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9"
-        onmousedown="selectInspSuggestion('${display.replace(/'/g,"\\'")}')"
-        onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
-        <span style="font-weight:600">${insp.nom}</span> ${insp.prenom}
-        <span style="float:right;font-size:11px;color:#64748b;font-weight:700">${insp.initiales}</span>
-      </div>`;
-    },
-    null
-  );
+  // Liste multi-choix inspecteurs (cases a cocher)
+  buildInspectorCheckboxes();
 
   // Autocomplete inspecteur principal
   setupAutocomplete('mLead',
@@ -367,6 +379,7 @@ window.onDeptChange = onDeptChange;
 // Toast / UX
 window.showToast = showToast;
 
-// Autocomplete
+// Autocomplete & multi-select
 window.selectEstabSuggestion = selectEstabSuggestion;
-window.selectInspSuggestion = selectInspSuggestion;
+window.updateInspSelection = updateInspSelection;
+window.setInspCheckboxes = setInspCheckboxes;

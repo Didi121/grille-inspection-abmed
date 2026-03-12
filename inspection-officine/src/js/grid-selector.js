@@ -31,6 +31,9 @@ export async function selectGrid(gridId) {
   document.getElementById('mResp').value='';
   document.getElementById('mType').selectedIndex=0;
   document.getElementById('mInsp').value='';
+  // Decocher toutes les cases inspecteurs
+  const inspContainer = document.getElementById('mInspContainer');
+  if(inspContainer) inspContainer.querySelectorAll('input[type=checkbox]').forEach(cb=>{ cb.checked=false; });
   document.getElementById('mPeriodeDu').value='';
   document.getElementById('mPeriodeAu').value='';
   document.getElementById('mDateRapport').value='';

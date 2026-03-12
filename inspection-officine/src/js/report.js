@@ -34,11 +34,14 @@ export async function renderReport() {
   const riskGlobal = determineGlobalRisk(rateNum, critiques, majeurs, riskCompliance.level===4);
   const adjustedCount = ecarts.filter(e=>e.factor!=='neutre').length;
 
-  const isLeadOrAdmin = ['admin','lead_inspector'].includes(state.session?.user?.role);
+  const role = state.session?.user?.role;
+  const isLeadOrAdmin = ['admin','lead_inspector'].includes(role);
   let insp = null;
   if(state.currentInspectionId) try { insp = await invoke('cmd_get_inspection',{token:state.session.token, inspectionId:state.currentInspectionId}); } catch(_){}
   const canValidate = isLeadOrAdmin && insp && insp.status !== 'validated';
   const canComplete = insp && insp.status === 'in_progress';
+  const canEditSuivi = insp && role !== 'viewer';
+  const isReadOnly = ['lead_inspector','viewer'].includes(role);
   const meta = insp?.extra_meta || {};
   const shortId = insp?.id?.substring(0,6) || '—';
   const d = s => s || '—';
@@ -134,10 +137,14 @@ export async function renderReport() {
       </div>`;}).join('')}
     `:''}
 
-    <div class="rpt-section-hdr">IV. Suites Administratives Proposees</div>
+    <div class="rpt-section-hdr" style="display:flex;align-items:center;justify-content:space-between">
+      <span>IV. Suites Administratives Proposees</span>
+      ${canEditSuivi?`<button onclick="openSuiviModal()" style="font-size:11px;padding:4px 12px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-weight:600">Modifier Suivi & Suites</button>`:''}
+    </div>
     <table class="rpt-data-table">
       <tr><td class="label">Suite Administrative :</td><td class="value">${d(meta.suite_admin)}</td></tr>
       <tr><td class="label">Delivrance d'Acte :</td><td class="value">${d(meta.acte)}</td></tr>
+      <tr><td class="label">Proces-Verbal :</td><td class="value">${d(meta.proces_verbal)}</td></tr>
       ${insp?.validated_by_name?`<tr><td class="label">Valide par :</td><td class="value">${insp.validated_by_name} le ${fmtDate(insp.validated_at)}</td></tr>`:''}
     </table>
 
@@ -166,10 +173,6 @@ export async function renderReport() {
       </div>
     </div>
   `;
-
-  // Determine si on peut editer le suivi (pas en mode lecture seule viewer)
-  const canEditSuivi = insp && (state.session?.user?.role !== 'viewer');
-  const isReadOnly = ['lead_inspector','viewer'].includes(state.session?.user?.role);
 
   // Actions sous le rapport
   document.getElementById('rptActions').innerHTML=`

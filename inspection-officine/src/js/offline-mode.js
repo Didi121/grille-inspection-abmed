@@ -347,9 +347,5 @@ function hideOfflineIndicator() {
 window.syncPendingOperations = syncPendingOperations;
 window.hideOfflineIndicator = hideOfflineIndicator;
 
-// Initialiser quand le DOM est prêt
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => initOfflineMode());
-} else {
-  initOfflineMode();
-}
+// Initialisation gérée par app.js via afterLogin()
+// Ne pas auto-initialiser ici pour éviter les conflits au démarrage

@@ -198,23 +198,4 @@ export function addPDFExportButton() {
   reportActions.appendChild(btn);
 }
 
-// Initialiser le bouton d'export quand le rapport est affiché
-window.addEventListener('load', () => {
-  // Observer les changements dans l'interface de rapport
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      if (mutation.type === 'childList') {
-        // Vérifier si l'élément de rapport est ajouté
-        if (document.getElementById('rptA4')) {
-          addPDFExportButton();
-        }
-      }
-    });
-  });
-  
-  // Observer le corps du document
-  observer.observe(document.body, { childList: true, subtree: true });
-});
-
-// Exposer la fonction globalement
-window.generatePDFReport = generatePDFReport;
+// addPDFExportButton est appelé par app.js via showScreen('report')

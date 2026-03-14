@@ -18,9 +18,6 @@
     "category": "Business",
     "shortDescription": "Application d'inspection pharmaceutique ABMed",
     "longDescription": "Système d'inspection pharmaceutique multi-grilles pour l'Agence Béninoise du Médicament (ABMed). Grilles officine et grossiste-répartiteur.",
-    "linux": {
-      "mimeType": []
-    },
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
@@ -41,7 +38,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'"
     }
   },
   "plugins": {}

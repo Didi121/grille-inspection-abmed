@@ -457,42 +457,30 @@ export async function setInspStatus(status) {
   } catch(e){ alert(e); }
 }
 
+
 export async function exportEcartsCSV() {
   let insp = null;
   if (state.currentInspectionId) try { insp = await invoke('cmd_get_inspection',{token:state.session.token, inspectionId:state.currentInspectionId}); } catch(_){}
-  const BOM = '\uFEFF';
-  const SEP = ';';
+  const BOM = '\uFEFF', SEP = ';';
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const estab = insp?.establishment || state.activeGrid?.id || 'rapport';
-  const date = insp?.date_inspection || new Date().toISOString().substring(0,10);
-
-  const headers = ['Section','Référence','Description','Conforme','Sévérité','Facteur','Justification facteur','Danger immédiat','Observation'];
-  const rows = [];
-
-  state.allCriteria.forEach(c => {
+  const date  = insp?.date_inspection || new Date().toISOString().substring(0,10);
+  const headers = ['Section','Référence','Description','Conforme','Sévérité','Facteur','Justification','Danger immédiat','Observation'];
+  const rows = state.allCriteria.map(c => {
     const r = state.responses[c.id] || {};
-    const conforme = r.conforme === true ? 'Oui' : r.conforme === false ? 'Non' : 'N/A';
-    rows.push([
-      c.sectionTitle || '',
-      c.reference || '',
-      c.description || '',
-      conforme,
-      r.conforme === false ? (r.severity || c.severity || 'majeur') : '',
-      r.conforme === false ? (r.factor || '') : '',
-      r.conforme === false ? (r.factorJustification || '') : '',
-      r.immediateDanger ? 'Oui' : '',
-      r.observation || ''
-    ]);
+    const conf = r.conforme === true ? 'Oui' : r.conforme === false ? 'Non' : 'N/A';
+    return [c.sectionTitle||'', c.reference||'', c.description||'', conf,
+      r.conforme===false ? (r.severity||c.severity||'majeur') : '',
+      r.conforme===false ? (r.factor||'') : '',
+      r.conforme===false ? (r.factorJustification||'') : '',
+      r.immediateDanger ? 'Oui' : '', r.observation||''];
   });
-
   const csv = BOM + [headers.map(q).join(SEP), ...rows.map(r => r.map(q).join(SEP))].join('\n');
   const name = estab.replace(/[^a-zA-Z0-9]/g,'_').substring(0,30);
   const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `ecarts_${name}_${date}.csv`;
-  a.click();
-  if (window.showToast) window.showToast('Export écarts CSV généré','info');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `ecarts_${name}_${date}.csv`; a.click();
+  if(window.showToast) window.showToast('Export écarts CSV généré','info');
 }
 
 export async function exportJSON() {

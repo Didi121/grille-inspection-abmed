@@ -2,43 +2,22 @@
   "$schema": "https://raw.githubusercontent.com/nicklasmoeller/tauri-config-schema/main/schema.json",
   "productName": "Inspections Pharma",
   "version": "2.0.0",
-  "identifier": "com.abmed.inspections",
+  "identifier": "com.inspections.pharma",
   "build": {
     "frontendDist": "../src"
-  },
-  "bundle": {
-    "active": true,
-    "icon": [
-      "icons/icon-32.png",
-      "icons/icon-128.png",
-      "icons/icon-256.png",
-      "icons/icon.png",
-      "icons/icon.ico"
-    ],
-    "category": "Business",
-    "shortDescription": "Application d'inspection pharmaceutique ABMed",
-    "longDescription": "Système d'inspection pharmaceutique multi-grilles pour l'Agence Béninoise du Médicament (ABMed). Grilles officine et grossiste-répartiteur.",
-    "windows": {
-      "certificateThumbprint": null,
-      "digestAlgorithm": "sha256",
-      "timestampUrl": ""
-    }
   },
   "app": {
     "windows": [
       {
-        "title": "Inspections Pharma — ABMed",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 900,
-        "minHeight": 600,
+        "title": "Inspections Pharma",
+        "width": 1100,
+        "height": 750,
         "resizable": true,
-        "fullscreen": false,
-        "center": true
+        "fullscreen": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'"
+      "csp": null
     }
   },
   "plugins": {}

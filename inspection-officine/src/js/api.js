@@ -5,116 +5,10 @@ import { buildAllGridsJS } from './grids-data.js';
 
 export async function invoke(cmd, args={}) {
   if (isTauri) return await window.__TAURI_INTERNALS__.invoke(cmd, args);
-  return await fallback(cmd, args);
+  return fallback(cmd, args);
 }
 
 export const DB = { users: [], inspections: [], responses: {}, audit: [], sessions: {}, grids: [], gridVersions: [], reportSnapshots: [], planning: [], indisponibilites: [], settings: {} };
-
-// Clé de chiffrement dérivée - stockée dans sessionStorage pour cette session uniquement
-let encryptionKey = null;
-
-// Fonction pour dériver une clé de chiffrement à partir d'un mot de passe
-async function deriveKey(password, salt) {
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(password),
-    'PBKDF2',
-    false,
-    ['deriveKey']
-  );
-  
-  return await crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: salt,
-      iterations: 100000,
-      hash: 'SHA-256'
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  );
-}
-
-// Fonction pour chiffrer des données
-async function encryptData(data, key) {
-  const iv = crypto.getRandomValues(new Uint8Array(12)); // IV de 12 octets pour GCM
-  const enc = new TextEncoder();
-  const encrypted = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv },
-    key,
-    enc.encode(JSON.stringify(data))
-  );
-  
-  // Retourner IV + données chiffrées en base64
-  const combined = new Uint8Array(iv.length + encrypted.byteLength);
-  combined.set(iv, 0);
-  combined.set(new Uint8Array(encrypted), iv.length);
-  
-  return btoa(String.fromCharCode(...combined));
-}
-
-// Fonction pour déchiffrer des données
-async function decryptData(encryptedData, key) {
-  try {
-    const combined = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
-    const iv = combined.slice(0, 12);
-    const ciphertext = combined.slice(12);
-    
-    const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: iv },
-      key,
-      ciphertext
-    );
-    
-    const dec = new TextDecoder();
-    return JSON.parse(dec.decode(decrypted));
-  } catch (e) {
-    console.error('Erreur de déchiffrement:', e);
-    throw new Error('Échec du déchiffrement - données corrompues ou mot de passe incorrect');
-  }
-}
-
-// Initialiser la clé de chiffrement
-async function initEncryptionKey() {
-  if (encryptionKey) return encryptionKey;
-  
-  // Essayer de récupérer une clé existante depuis sessionStorage
-  const storedKeyData = sessionStorage.getItem('db_encryption_key');
-  if (storedKeyData) {
-    try {
-      // La clé était stockée chiffrée, nous devons la déchiffrer
-      // Pour simplifier, utilisons une clé dérivée d'un secret statique
-      const salt = new Uint8Array([...atob('YWJtZWQta2V5LXNhbHQ=')].map(c => c.charCodeAt(0))); // "abmed-key-salt"
-      const masterKey = await deriveKey('abmed-master-secret-2026', salt);
-      encryptionKey = await decryptData(storedKeyData, masterKey);
-      return encryptionKey;
-    } catch(e) {
-      console.warn('Impossible de déchiffrer la clé de chiffrement, génération d\'une nouvelle clé');
-    }
-  }
-  
-  // Générer une nouvelle clé aléatoire
-  encryptionKey = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
-  
-  // Stocker la clé chiffrée dans sessionStorage
-  try {
-    const salt = new Uint8Array([...atob('YWJtZWQta2V5LXNhbHQ=')].map(c => c.charCodeAt(0))); // "abmed-key-salt"
-    const masterKey = await deriveKey('abmed-master-secret-2026', salt);
-    const encryptedKey = await encryptData(encryptionKey, masterKey);
-    sessionStorage.setItem('db_encryption_key', encryptedKey);
-  } catch(e) {
-    console.warn('Impossible de stocker la clé de chiffrement:', e);
-  }
-  
-  return encryptionKey;
-}
 
 function saveDB() {
   try {
@@ -130,137 +24,78 @@ function saveDB() {
       indisponibilites: DB.indisponibilites,
       settings: DB.settings
     };
-    
-    // Chiffrer les données avant de les stocker
-    initEncryptionKey().then(key => {
-      encryptData(d, key).then(encrypted => {
-        localStorage.setItem('ipharma_db', encrypted);
-      }).catch(e => {
-        console.error('Erreur de chiffrement:', e);
-      });
-    });
-  } catch(e){
-    console.error('Erreur dans saveDB:', e);
-  }
+    localStorage.setItem('ipharma_db', JSON.stringify(d));
+  } catch(e){}
 }
 
-async function loadDB() {
+function loadDB() {
   try {
-    const encryptedData = localStorage.getItem('ipharma_db') || localStorage.getItem('abmed_db_v2');
-    if (encryptedData) {
-      const key = await initEncryptionKey();
-      const d = await decryptData(encryptedData, key);
-      
-      if(d){
-        DB.users = d.users||[];
-        DB.inspections = d.inspections||[];
-        DB.responses = d.responses||{};
-        DB.audit = d.audit||[];
-        DB.grids = d.grids||[];
-        DB.gridVersions = d.gridVersions||[];
-        DB.reportSnapshots = d.reportSnapshots||[];
-        DB.planning = d.planning||[];
-        DB.indisponibilites = d.indisponibilites||[];
-        DB.settings = d.settings||{};
-      }
+    const d = JSON.parse(localStorage.getItem('ipharma_db')||localStorage.getItem('abmed_db_v2')||'null');
+    if(d){
+      DB.users = d.users||[];
+      DB.inspections = d.inspections||[];
+      DB.responses = d.responses||{};
+      DB.audit = d.audit||[];
+      DB.grids = d.grids||[];
+      DB.gridVersions = d.gridVersions||[];
+      DB.reportSnapshots = d.reportSnapshots||[];
+      DB.planning = d.planning||[];
+      DB.indisponibilites = d.indisponibilites||[];
+      DB.settings = d.settings||{};
     }
-  } catch(e){
-    console.error('Erreur de déchiffrement des données:', e);
-    // En cas d'erreur de déchiffrement, initialiser avec des valeurs par défaut
-    DB.users = [];
-    DB.inspections = [];
-    DB.responses = {};
-    DB.audit = [];
-    DB.grids = [];
-    DB.gridVersions = [];
-    DB.reportSnapshots = [];
-    DB.planning = [];
-    DB.indisponibilites = [];
-    DB.settings = {};
-  }
+  } catch(e){}
 }
 
-// Hash sécurisé PBKDF2 pour le mode fallback
-async function hashPwd(pwd) {
-  const enc = new TextEncoder();
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const key = await crypto.subtle.importKey('raw', enc.encode(pwd), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 100000 },
-    key,
-    256
-  );
-  const saltB64 = btoa(String.fromCharCode(...salt));
-  const hashB64 = btoa(String.fromCharCode(...new Uint8Array(bits)));
-  return `pbkdf2$${saltB64}$${hashB64}`;
+// Hash simple salé pour le mode fallback (fonctionne en file:// sans crypto.subtle)
+function hashPwd(pwd) {
+  const str = pwd + '_ipharma_salt_2026';
+  let h1=0xdeadbeef, h2=0x41c6ce57;
+  for(let i=0;i<str.length;i++){
+    const ch=str.charCodeAt(i);
+    h1=Math.imul(h1^ch,2654435761);
+    h2=Math.imul(h2^ch,1597334677);
+  }
+  h1=Math.imul(h1^(h1>>>16),2246822507);
+  h1^=Math.imul(h2^(h2>>>13),3266489909);
+  h2=Math.imul(h2^(h2>>>16),2246822507);
+  h2^=Math.imul(h1^(h1>>>13),3266489909);
+  return (4294967296*(2097151&h2)+(h1>>>0)).toString(36)+'x'+(4294967296*(2097151&h1)+(h2>>>0)).toString(36);
 }
 
-async function verifyPwd(pwd, hash) {
-  if (!hash || !hash.startsWith('pbkdf2$')) {
-    // Ancien format - migration nécessaire, considéré comme invalide
-    return false;
-  }
-  const parts = hash.split('$');
-  if (parts.length !== 3) return false;
-  const saltB64 = parts[1];
-  const expectedHashB64 = parts[2];
-  const salt = new Uint8Array([...atob(saltB64)].map(c => c.charCodeAt(0)));
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', enc.encode(pwd), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 100000 },
-    key,
-    256
-  );
-  const hashB64 = btoa(String.fromCharCode(...new Uint8Array(bits)));
-  return hashB64 === expectedHashB64;
-}
+function verifyPwd(pwd, hash) { return hashPwd(pwd) === hash; }
 
 function addAudit(userId, username, action, entityType, entityId, details) {
   DB.audit.unshift({ id: DB.audit.length+1, timestamp: now(), user_id: userId, username, action, entity_type: entityType, entity_id: entityId, details });
   saveDB();
 }
 
-export async function initFallbackDB() {
-  await loadDB();
+export function initFallbackDB() {
+  loadDB();
   if (!DB.users.length) {
-    // Générer un mot de passe aléatoire pour l'admin
-    const tempAdminPwd = Array.from(crypto.getRandomValues(new Uint8Array(12)))
-      .map(b => (b % 36).toString(36))
-      .join('')
-      .replace(/(\d)/g, c => String.fromCharCode(97 + parseInt(c)));
-    
     DB.users.push({ id:crypto.randomUUID(), username:'admin', full_name:'Administrateur', role:'admin', active:true,
-      password_hash: await hashPwd(tempAdminPwd), must_change_password:true, created_at: now(), updated_at: now() });
-    
-    // Stocker le mot de passe temporaire pour affichage
-    DB.settings.temp_admin_password = tempAdminPwd;
-    
-    console.warn('%c╔════════════════════════════════════════════════════════════╗', 'color: #f59e0b; font-weight: bold;');
-    console.warn('%c║  PREMIER DÉMARRAGE - MOT DE PASSE ADMIN TEMPORAIRE         ║', 'color: #f59e0b; font-weight: bold;');
-    console.warn('%c╠════════════════════════════════════════════════════════════╣', 'color: #f59e0b; font-weight: bold;');
-    console.warn('%c║  Username: admin                                           ║', 'color: #f59e0b;');
-    console.warn(`%c║  Password: ${tempAdminPwd.padEnd(52)}║`, 'color: #f59e0b;');
-    console.warn('%c╠════════════════════════════════════════════════════════════╣', 'color: #f59e0b; font-weight: bold;');
-    console.warn('%c║  ⚠️  Changez ce mot de passe immédiatement après connexion  ║', 'color: #ef4444; font-weight: bold;');
-    console.warn('%c╚════════════════════════════════════════════════════════════╝', 'color: #f59e0b; font-weight: bold;');
+      password_hash: hashPwd('admin123'), must_change_password:true, created_at: now(), updated_at: now() });
+    DB.users.push({ id: crypto.randomUUID(), username:'inspecteur1', full_name:'Dr. Konou',
+      role:'inspector', active:true, password_hash: hashPwd('pass123'), must_change_password:true, created_at: now(), updated_at: now() });
+    DB.users.push({ id: crypto.randomUUID(), username:'chef1', full_name:'Dr. Tamou',
+      role:'lead_inspector', active:true, password_hash: hashPwd('pass123'), must_change_password:true, created_at: now(), updated_at: now() });
   } else {
     // Migration/réparation : s'assurer que chaque user a un password_hash valide
-    const defaultPwds = { admin:null, inspecteur1:null, chef1:null }; // Plus de mots de passe par défaut
+    const defaultPwds = { admin:'admin123', inspecteur1:'pass123', chef1:'pass123' };
     let repaired = false;
     for (const u of DB.users) {
-      if (!u.password_hash || !u.password_hash.startsWith('pbkdf2$')) {
-        // Migration vers PBKDF2 ou réparation - générer un mot de passe aléatoire
-        const randomPwd = Array.from(crypto.getRandomValues(new Uint8Array(12)))
-          .map(b => (b % 36).toString(36))
-          .join('');
-        u.password_hash = await hashPwd(randomPwd);
-        u.must_change_password = true;
+      if (!u.password_hash) {
+        // Cas 1: ancien format avec password en clair
+        if (u.password) {
+          u.password_hash = hashPwd(u.password);
+          delete u.password;
+        } else {
+          // Cas 2: données corrompues (ni password ni hash) -> reset au défaut
+          u.password_hash = hashPwd(defaultPwds[u.username] || 'changeme');
+        }
         repaired = true;
-        console.warn(`Mot de passe réinitialisé pour ${u.username}: ${randomPwd} (doit être changé)`);
       }
     }
-    if (repaired) addAudit(null, 'system', 'REPAIR_PASSWORDS', 'security', null, 'Migration vers PBKDF2 avec mots de passe aléatoires');
+    if (repaired) addAudit(null, 'system', 'REPAIR_PASSWORDS', 'security', null, 'Réparation mots de passe corrompus');
   }
   if (!DB.grids.length) {
     DB.grids = buildAllGridsJS().map(g=>({...g, status:'active', is_current:true, created_at:now()}));
@@ -268,8 +103,8 @@ export async function initFallbackDB() {
   saveDB();
 }
 
-async function fallback(cmd, a) {
-  await initFallbackDB();
+function fallback(cmd, a) {
+  initFallbackDB();
   switch(cmd) {
     case 'list_grids': {
       if(!a?.token||!DB.sessions[a.token]) throw 'Non authentifié';
@@ -277,7 +112,7 @@ async function fallback(cmd, a) {
     }
     case 'cmd_login': {
       const u = DB.users.find(x=>x.username===a.username&&x.active);
-      if(!u || !(await verifyPwd(a.password, u.password_hash))) throw 'Identifiants incorrects';
+      if(!u || !verifyPwd(a.password, u.password_hash)) throw 'Identifiants incorrects';
       const tok = crypto.randomUUID();
       DB.sessions[tok] = u.id;
       addAudit(u.id, u.username, 'LOGIN', 'session', tok, '');
@@ -286,9 +121,9 @@ async function fallback(cmd, a) {
     case 'cmd_change_own_password': {
       const uid=DB.sessions[a.token]; if(!uid) throw 'Non authentifié';
       const u=DB.users.find(x=>x.id===uid);
-      if(!u || !(await verifyPwd(a.currentPassword, u.password_hash))) throw 'Mot de passe actuel incorrect';
+      if(!u || !verifyPwd(a.currentPassword, u.password_hash)) throw 'Mot de passe actuel incorrect';
       validatePassword(a.newPassword);
-      u.password_hash = await hashPwd(a.newPassword);
+      u.password_hash = hashPwd(a.newPassword);
       u.must_change_password = false;
       u.updated_at = now();
       addAudit(u.id, u.username, 'CHANGE_OWN_PASSWORD', 'user', u.id, '');
@@ -309,7 +144,7 @@ async function fallback(cmd, a) {
     }
     case 'cmd_list_users': return DB.users.map(u=>({id:u.id,username:u.username,full_name:u.full_name,role:u.role,active:u.active,created_at:u.created_at,updated_at:u.updated_at}));
     case 'cmd_create_user': {
-      const nu = {id:crypto.randomUUID(), username:a.req.username, full_name:a.req.full_name, role:a.req.role, password_hash: await hashPwd(a.req.password), active:true, created_at:now(), updated_at:now()};
+      const nu = {id:crypto.randomUUID(), username:a.req.username, full_name:a.req.full_name, role:a.req.role, password_hash: hashPwd(a.req.password), active:true, created_at:now(), updated_at:now()};
       DB.users.push(nu); addAudit(null,null,'CREATE_USER','user',nu.id,nu.username);
       return {id:nu.id,username:nu.username,full_name:nu.full_name,role:nu.role,active:true,created_at:nu.created_at,updated_at:nu.updated_at};
     }
@@ -320,7 +155,7 @@ async function fallback(cmd, a) {
     }
     case 'cmd_change_password': {
       const u=DB.users.find(x=>x.id===a.userId);
-      if(u) u.password_hash=await hashPwd(a.newPassword);
+      if(u) u.password_hash=hashPwd(a.newPassword);
       addAudit(state.session?.user?.id,state.session?.user?.username,'CHANGE_PASSWORD','user',a.userId,'');
       saveDB(); return null;
     }
@@ -470,13 +305,7 @@ async function fallback(cmd, a) {
       const g=DB.grids.find(x=>x.id===a.gridId);
       return g?JSON.stringify(g,null,2):'{}';
     }
-    case 'cmd_export_audit_csv': {
-      const csvEscape = v => '"' + String(v||'').replace(/"/g, '""') + '"';
-      const header = 'timestamp,action,user,details';
-      return [header, ...DB.audit.map(l =>
-        [l.timestamp, l.action, l.username, l.details].map(csvEscape).join(',')
-      )].join('\n');
-    }
+    case 'cmd_export_audit_csv': return 'timestamp,action,user,details\n'+DB.audit.map(l=>l.timestamp+','+l.action+','+(l.username||'')+','+(l.details||'')).join('\n');
     case 'cmd_export_audit_json': return JSON.stringify(DB.audit,null,2);
 
     // ═══════════ SNAPSHOTS RAPPORT ═══════════
@@ -531,19 +360,6 @@ async function fallback(cmd, a) {
     // ═══════════ SETTINGS ═══════════
     case 'cmd_get_settings': return DB.settings;
     case 'cmd_save_settings': { Object.assign(DB.settings, a.settings); saveDB(); return null; }
-
-    // ═══════════ BACKUP (mode navigateur : export/import localStorage) ═══════════
-    case 'cmd_list_backups':    return [];           // Pas de backups SQLite en mode navigateur
-    case 'cmd_backup_db':       return 'local_mode'; // Indiquer mode non-Tauri
-    case 'cmd_restore_db':      throw 'La restauration SQLite nécessite le mode application (Tauri). Utilisez l\'export/import JSON.';
-    case 'cmd_delete_backup':   return null;
-    case 'cmd_configure_backup': {
-      // Persister dans DB.settings pour cohérence
-      if (a.intervalHours)  DB.settings.backup_interval_hours = a.intervalHours;
-      if (a.maxAutoBackups) DB.settings.max_auto_backups = a.maxAutoBackups;
-      saveDB(); return null;
-    }
-
     case 'get_grid': {
       if(!a?.token||!DB.sessions[a.token]) throw 'Non authentifié';
       const g=DB.grids.find(x=>x.id===a.gridId&&x.status==='active');

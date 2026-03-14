@@ -11,20 +11,17 @@ import { loadDashboard, statusLabel, resetDashFilters, quickValidate, deleteInsp
 import { renderGridSelector, selectGrid, autoCalcCapa } from './grid-selector.js';
 import { createAndStart, openInspection, renderSidebar, renderCriterion } from './inspection.js';
 import { riskParams, skipSection, reactivateSection, setSeverity, setResp, updateObs, nav, updateProgress, setFactor, setFactorJustification, setImmediateDanger, persistRisk } from './responses.js';
-import { renderReport, setInspStatus, exportJSON, openSuiviModal, autoCalcCapaSuivi, saveSuiviMeta, showReportVersions, viewSnapshotDetail, createManualSnapshot, exportEcartsCSV } from './report.js';
+import { renderReport, setInspStatus, exportJSON, exportEcartsCSV, openSuiviModal, autoCalcCapaSuivi, saveSuiviMeta, showReportVersions, viewSnapshotDetail, createManualSnapshot } from './report.js';
 import { searchEstablishments, typeLabel as estabTypeLabel } from './establishments-data.js';
 import { INSPECTORS, searchInspectors, getInspectorDisplay } from './inspectors-data.js';
 import { renderGridsAdmin, showCreateGridModal, doCreateGrid, openGridEditor, showEditMetaModal, doEditMeta, showAddSectionModal, doAddSection, showEditSectionModal, doEditSection, doDeleteSection, severitySelect, showAddCriterionModal, doAddCriterion, showEditCriterionModal, doEditCriterion, doDeleteCriterion, archiveGrid, duplicateGrid, showGridVersions, rollbackVersion, doExportGrid } from './admin-grids.js';
 import { renderUsers, showCreateUserModal, doCreateUser, showEditUserModal, doEditUser, showChangePwModal, doChangePw, deactivateUser, reactivateUser } from './admin-users.js';
 import { renderAudit, exportAuditCSV } from './audit.js';
-import { renderPlanning, planningNavMonth, showNewPlanningModal, planDeptChange, doCreatePlanning, showIndispoModal, doCreateIndispo, deleteIndispo, setPlanningStatus, deletePlanning, showObjectifModal, saveObjectif, recalcObjTotal } from './planning.js';
-import { DEPARTEMENTS, getCommunesByDept } from './benin-data.js';
-import { initOfflineMode, addPendingOperation, getOfflineState } from './offline-mode.js';
 import { renderAnalytics, exportIndicateursCSV } from './analytics.js';
 import { renderBackup, doManualBackup, doRestoreBackup, doDeleteBackup, doConfigureBackup, doExportLocalBackup, doImportLocalBackup } from './backup.js';
 import { generatePDFReport, addPDFExportButton } from './pdf-export.js';
-import { showToast as _showToast } from './toast.js';
-import { initCloudSyncUI, manualSync, showCloudSyncSettings } from './cloud-sync-ui.js';
+import { renderPlanning, planningNavMonth, showNewPlanningModal, planDeptChange, doCreatePlanning, showIndispoModal, doCreateIndispo, deleteIndispo, setPlanningStatus, deletePlanning, showObjectifModal, saveObjectif, recalcObjTotal } from './planning.js';
+import { DEPARTEMENTS, getCommunesByDept } from './benin-data.js';
 
 // ═══════════════════ SCREEN NAVIGATION ═══════════════════
 
@@ -43,13 +40,9 @@ export function showScreen(name) {
   if (name === 'audit') renderAudit();
   if (name === 'grids') renderGridsAdmin();
   if (name === 'analytics') renderAnalytics();
-  if (name === 'planning') renderPlanning();
   if (name === 'backup') renderBackup();
+  if (name === 'planning') renderPlanning();
   if (name === 'dash') loadDashboard();
-  // Ajouter le bouton d'export PDF quand le rapport est affiché
-  if (name === 'report') {
-    setTimeout(addPDFExportButton, 100);
-  }
 }
 
 // ═══════════════════ MODAL ═══════════════════
@@ -65,9 +58,19 @@ export function closeModal() {
 
 // ═══════════════════ TOAST NOTIFICATIONS ═══════════════════
 
-// showToast est maintenant dans toast.js (évite les imports circulaires)
+function ensureToastContainer() {
+  let c = document.getElementById('toastContainer');
+  if (!c) { c = document.createElement('div'); c.id = 'toastContainer'; c.className = 'toast-container'; document.body.appendChild(c); }
+  return c;
+}
+
 export function showToast(message, type = 'info', duration = 3000) {
-  _showToast(message, type, duration);
+  const c = ensureToastContainer();
+  const t = document.createElement('div');
+  t.className = 'toast' + (type !== 'info' ? ' ' + type : '');
+  t.textContent = message;
+  c.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateY(20px)'; setTimeout(() => t.remove(), 300); }, duration);
 }
 
 // ═══════════════════ KEYBOARD SHORTCUTS ═══════════════════
@@ -84,9 +87,6 @@ document.addEventListener('keydown', e => {
 });
 
 // ═══════════════════ INIT ═══════════════════
-
-// Initialiser le mode hors-ligne
-initOfflineMode();
 
 // ═══════════════════ BENIN DROPDOWNS ═══════════════════
 
@@ -306,6 +306,16 @@ window.deleteInsp = deleteInsp;
 window.resetDashFilters = resetDashFilters;
 window.viewReport = viewReport;
 window.exportAllInspCSV = exportAllInspCSV;
+window.exportEcartsCSV = exportEcartsCSV;
+window.exportIndicateursCSV = exportIndicateursCSV;
+window.renderBackup = renderBackup;
+window.doManualBackup = doManualBackup;
+window.doRestoreBackup = doRestoreBackup;
+window.doDeleteBackup = doDeleteBackup;
+window.doConfigureBackup = doConfigureBackup;
+window.doExportLocalBackup = doExportLocalBackup;
+window.doImportLocalBackup = doImportLocalBackup;
+window.generatePDFReport = generatePDFReport;
 
 // Grid selector
 window.selectGrid = selectGrid;
@@ -332,7 +342,6 @@ window.setImmediateDanger = setImmediateDanger;
 // Report
 window.setInspStatus = setInspStatus;
 window.exportJSON = exportJSON;
-window.exportEcartsCSV = exportEcartsCSV;
 window.openSuiviModal = openSuiviModal;
 window.autoCalcCapaSuivi = autoCalcCapaSuivi;
 window.saveSuiviMeta = saveSuiviMeta;
@@ -378,18 +387,8 @@ window.reactivateUser = reactivateUser;
 window.renderAudit = renderAudit;
 window.exportAuditCSV = exportAuditCSV;
 
-// Backup & Restauration
-window.renderBackup       = renderBackup;
-window.doManualBackup     = doManualBackup;
-window.doRestoreBackup    = doRestoreBackup;
-window.doDeleteBackup     = doDeleteBackup;
-window.doConfigureBackup  = doConfigureBackup;
-window.doExportLocalBackup= doExportLocalBackup;
-window.doImportLocalBackup= doImportLocalBackup;
-
 // Analytics
 window.renderAnalytics = renderAnalytics;
-window.exportIndicateursCSV = exportIndicateursCSV;
 
 // Planning
 window.renderPlanning = renderPlanning;
@@ -414,11 +413,6 @@ window.onDeptChange = onDeptChange;
 
 // Toast / UX
 window.showToast = showToast;
-
-// Cloud Sync
-window.manualSync = manualSync;
-window.showCloudSyncSettings = showCloudSyncSettings;
-window.initCloudSyncUI = initCloudSyncUI;
 
 // Autocomplete & multi-select
 window.selectEstabSuggestion = selectEstabSuggestion;

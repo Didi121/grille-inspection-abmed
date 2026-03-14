@@ -40,10 +40,6 @@ export async function exportAuditCSV() {
   try {
     const csv = await invoke('cmd_export_audit_csv',{token:state.session.token, filter:{limit:10000}});
     const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'audit_' + new Date().toISOString().substring(0,10) + '.csv';
-    a.click();
-    if(window.showToast) window.showToast('Export audit généré','info');
-  } catch(e){ alert('Erreur export audit: ' + e); }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'audit_'+new Date().toISOString().substring(0,10)+'.csv'; a.click();
+  } catch(e){alert(e)}
 }

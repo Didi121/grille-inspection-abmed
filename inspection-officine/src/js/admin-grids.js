@@ -2,6 +2,7 @@
 import { state } from './state.js';
 import { invoke } from './api.js';
 import { esc, escAttr } from './utils.js';
+import { renderGrilleVisualization } from './grille-visualization.js';
 
 export async function renderGridsAdmin() {
   try {
@@ -9,10 +10,13 @@ export async function renderGridsAdmin() {
     document.getElementById('gridsPanel').innerHTML=`
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-m)">
         <h2>Gestion des grilles</h2>
-        <button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="showCreateGridModal()">+ Nouvelle grille</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px" onclick="showCreateGridModal()">+ Nouvelle grille</button>
+          <button class="btn-sm" style="width:auto;padding:8px 16px;font-size:12px" onclick="showGrilleVisualization()">📊 Visualiser</button>
+        </div>
       </div>
       ${grids.length===0?'<p style="color:var(--text-muted)">Aucune grille active</p>':''}
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:var(--space-s)">
+      <div class="grid-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:var(--space-s)">
       ${grids.map(g=>`
         <div style="border:1px solid var(--border);padding:var(--space-s);background:var(--surface)">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
@@ -34,7 +38,11 @@ export async function renderGridsAdmin() {
           </div>
         </div>
       `).join('')}
-      </div>`;
+      </div>
+      <div id="grille-visualization" style="display:none;margin-top:20px;"></div>`;
+      
+    // Initialize visualization functionality
+    renderGrilleVisualization();
   } catch(e){ document.getElementById('gridsPanel').innerHTML=`<p style="color:var(--accent)">Erreur: ${e}</p>`; }
 }
 

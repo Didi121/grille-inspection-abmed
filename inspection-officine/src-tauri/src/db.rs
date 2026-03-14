@@ -236,6 +236,10 @@ impl Database {
         conn.execute_batch(
             "ALTER TABLE responses ADD COLUMN immediate_danger INTEGER DEFAULT 0;"
         ).ok();
+        // Migration extra_meta (département, commune, responsable, etc.)
+        conn.execute_batch(
+            "ALTER TABLE inspections ADD COLUMN extra_meta TEXT DEFAULT NULL;"
+        ).ok();
 
         // Créer l'admin par défaut avec mot de passe aléatoire si n'existe pas
         let admin_exists: bool = conn.query_row(

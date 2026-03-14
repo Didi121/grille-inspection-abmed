@@ -76,7 +76,7 @@ pub fn list_inspections(db: &Database, user_id: Option<&str>, status: Option<&st
     let mut sql = String::from(
         "SELECT i.id, i.grid_id, i.status, i.date_inspection, i.establishment, i.inspection_type,
                 i.inspectors, i.created_by, uc.full_name, i.validated_by, uv.full_name,
-                i.validated_at, i.created_at, i.updated_at, i.extra_meta
+                i.validated_at, i.created_at, i.updated_at
          FROM inspections i
          LEFT JOIN users uc ON i.created_by = uc.id
          LEFT JOIN users uv ON i.validated_by = uv.id
@@ -103,9 +103,6 @@ pub fn list_inspections(db: &Database, user_id: Option<&str>, status: Option<&st
         let inspectors_str: String = row.get::<_,String>(6).unwrap_or_default();
         let inspectors: Vec<String> = serde_json::from_str(&inspectors_str).unwrap_or_default();
 
-        let extra_raw: Option<String> = row.get(14).unwrap_or(None);
-        let extra_meta = extra_raw.as_deref()
-            .and_then(|s| serde_json::from_str(s).ok());
         Ok(SavedInspection {
             id: insp_id,
             grid_id: row.get(1)?,
@@ -122,17 +119,23 @@ pub fn list_inspections(db: &Database, user_id: Option<&str>, status: Option<&st
             created_at: row.get(12)?,
             updated_at: row.get(13)?,
             progress: InspectionProgress { total: 0, answered: 0, conforme: 0, non_conforme: 0 },
-            extra_meta,
+            extra_meta: None, // chargé séparément ci-dessous
         })
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
     .collect::<Vec<_>>();
 
-    // Ajouter la progression pour chaque inspection
+    // Ajouter la progression et extra_meta pour chaque inspection
     let mut result = Vec::new();
     for mut insp in inspections {
-        let progress = get_progress(&conn, &insp.id);
-        insp.progress = progress;
+        insp.progress = get_progress(&conn, &insp.id);
+        insp.extra_meta = conn.query_row(
+            "SELECT extra_meta FROM inspections WHERE id = ?1",
+            params![&insp.id],
+            |row| row.get::<_, Option<String>>(0)
+        ).ok().flatten()
+         .as_deref()
+         .and_then(|s| serde_json::from_str(s).ok());
         result.push(insp);
     }
 
@@ -283,7 +286,7 @@ pub fn get_inspection(db: &Database, inspection_id: &str) -> Result<SavedInspect
     let mut insp = conn.query_row(
         "SELECT i.id, i.grid_id, i.status, i.date_inspection, i.establishment, i.inspection_type,
                 i.inspectors, i.created_by, uc.full_name, i.validated_by, uv.full_name,
-                i.validated_at, i.created_at, i.updated_at, i.extra_meta
+                i.validated_at, i.created_at, i.updated_at
          FROM inspections i
          LEFT JOIN users uc ON i.created_by = uc.id
          LEFT JOIN users uv ON i.validated_by = uv.id
@@ -292,9 +295,6 @@ pub fn get_inspection(db: &Database, inspection_id: &str) -> Result<SavedInspect
         |row| {
             let inspectors_str: String = row.get::<_,String>(6).unwrap_or_default();
             let inspectors: Vec<String> = serde_json::from_str(&inspectors_str).unwrap_or_default();
-            let extra_raw: Option<String> = row.get(14).unwrap_or(None);
-            let extra_meta = extra_raw.as_deref()
-                .and_then(|s| serde_json::from_str(s).ok());
             Ok(SavedInspection {
                 id: row.get(0)?, grid_id: row.get(1)?, status: row.get(2)?,
                 date_inspection: row.get::<_,String>(3).unwrap_or_default(),
@@ -304,12 +304,19 @@ pub fn get_inspection(db: &Database, inspection_id: &str) -> Result<SavedInspect
                 validated_by: row.get(9)?, validated_by_name: row.get(10)?,
                 validated_at: row.get(11)?, created_at: row.get(12)?, updated_at: row.get(13)?,
                 progress: InspectionProgress { total: 0, answered: 0, conforme: 0, non_conforme: 0 },
-                extra_meta,
+                extra_meta: None,
             })
         }
     ).map_err(|_| "Inspection non trouvée".to_string())?;
 
     insp.progress = get_progress(&conn, &insp.id);
+    insp.extra_meta = conn.query_row(
+        "SELECT extra_meta FROM inspections WHERE id = ?1",
+        params![&insp.id],
+        |row| row.get::<_, Option<String>>(0)
+    ).ok().flatten()
+     .as_deref()
+     .and_then(|s| serde_json::from_str(s).ok());
     Ok(insp)
 }
 

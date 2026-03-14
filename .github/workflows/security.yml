@@ -28,9 +28,18 @@ jobs:
         run: cargo clippy -- -D warnings
         working-directory: inspection-officine/src-tauri
 
-      - name: Rust Test
-        run: cargo test
+      - name: Rust Test & Coverage
+        run: |
+          cargo install cargo-llvm-cov
+          cargo llvm-cov --lcov --output-path lcov.info
         working-directory: inspection-officine/src-tauri
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: inspection-officine/src-tauri/lcov.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   js-security:
     name: JS Security Audit

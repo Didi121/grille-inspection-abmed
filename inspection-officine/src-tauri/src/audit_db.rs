@@ -70,6 +70,13 @@ impl AuditDatabase {
         AuditDatabase { conn: Mutex::new(conn) }
     }
 
+    pub fn backup(&self, backup_path: &std::path::Path) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(&format!("VACUUM INTO '{}'", backup_path.to_string_lossy()), [])
+            .map_err(|e| format!("Erreur backup audit: {}", e))?;
+        Ok(())
+    }
+
     /// Enregistre une action d'audit simple
     pub fn log_action(
         &self,
@@ -177,7 +184,7 @@ impl AuditDatabase {
         if let Some(ref to) = filter.to_date {
             sql.push_str(&format!(" AND timestamp <= ?{}", param_idx));
             bind_values.push(Box::new(to.clone()));
-            let _ = param_idx;
+            param_idx += 1;
         }
 
         sql.push_str(" ORDER BY timestamp DESC");

@@ -88,6 +88,30 @@ pub fn login(db: &Database, username: &str, password: &str) -> Result<SessionInf
 
 pub fn validate_session(db: &Database, token: &str) -> Result<User, String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let user = conn.query_row(
+        "SELECT u.id, u.username, u.full_name, u.role, u.active, u.created_at, u.updated_at, u.must_change_password
+         FROM sessions s JOIN users u ON s.user_id = u.id
+         WHERE s.token = ?1 AND s.expires_at > datetime('now','localtime') AND u.active = 1",
+        params![token],
+        |row| Ok(User {
+            id: row.get(0)?, username: row.get(1)?, full_name: row.get(2)?,
+            role: row.get(3)?, active: row.get(4)?, created_at: row.get(5)?, updated_at: row.get(6)?,
+            must_change_password: row.get::<_,bool>(7).unwrap_or(false),
+        }),
+    ).map_err(|_| "Session invalide ou expirée".to_string())?;
+    
+    // Vérifier que le mot de passe a été changé si nécessaire
+    if user.must_change_password {
+        return Err("PASSWORD_CHANGE_REQUIRED".to_string());
+    }
+    
+    Ok(user)
+}
+
+/// Valide la session SANS vérifier must_change_password
+/// À utiliser UNIQUEMENT pour cmd_change_own_password et cmd_logout
+pub fn validate_session_unchecked(db: &Database, token: &str) -> Result<User, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
     conn.query_row(
         "SELECT u.id, u.username, u.full_name, u.role, u.active, u.created_at, u.updated_at, u.must_change_password
          FROM sessions s JOIN users u ON s.user_id = u.id
@@ -208,6 +232,15 @@ pub fn delete_user(db: &Database, user_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Valide que le rôle fait partie des rôles autorisés
+pub fn validate_role(role: &str) -> Result<(), String> {
+    let allowed_roles = ["admin", "lead_inspector", "inspector", "viewer"];
+    if !allowed_roles.contains(&role) {
+        return Err(format!("Rôle invalide: '{}'. Rôles autorisés: {}", role, allowed_roles.join(", ")));
+    }
+    Ok(())
+}
+
 // ═══════════════════ TESTS UNITAIRES ═══════════════════
 
 #[cfg(test)]
@@ -215,6 +248,21 @@ mod tests {
     use super::*;
 
     // ── Tests de validation ──
+
+    #[test]
+    fn test_validate_role_valid() {
+        assert!(validate_role("admin").is_ok());
+        assert!(validate_role("lead_inspector").is_ok());
+        assert!(validate_role("inspector").is_ok());
+        assert!(validate_role("viewer").is_ok());
+    }
+
+    #[test]
+    fn test_validate_role_invalid() {
+        assert!(validate_role("superadmin").is_err());
+        assert!(validate_role("hacker").is_err());
+        assert!(validate_role("").is_err());
+    }
 
     #[test]
     fn test_validate_input_ok() {

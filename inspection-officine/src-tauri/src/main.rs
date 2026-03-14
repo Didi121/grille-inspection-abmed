@@ -9,6 +9,7 @@ mod audit_db;
 mod migration;
 mod grids_db;
 mod grid_diff;
+mod cloud_sync;
 
 use grid::{GridInfo, Section};
 use db::Database;
@@ -19,6 +20,11 @@ use storage::{SavedInspection, SavedResponse, CreateInspectionRequest,
     Indisponibilite, CreateIndispoRequest};
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use std::path::PathBuf;
+use sha2::{Sha256, Digest};
+use std::io::Write;
+
+struct AppPath(PathBuf);
 
 // ── Grid summary (pour la sélection) ──
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,7 +71,8 @@ fn cmd_login(database: State<Database>, audit_database: State<AuditDatabase>, us
 
 #[tauri::command]
 fn cmd_logout(database: State<Database>, audit_database: State<AuditDatabase>, token: String) -> Result<(), String> {
-    if let Ok(user) = users::validate_session(&database, &token) {
+    // Utiliser validate_session_unchecked car logout est autorisé même si must_change_password
+    if let Ok(user) = users::validate_session_unchecked(&database, &token) {
         audit_database.log_user_action(&user.id, &user.username,
             "LOGOUT", "session", &token, "");
     }
@@ -74,7 +81,8 @@ fn cmd_logout(database: State<Database>, audit_database: State<AuditDatabase>, t
 
 #[tauri::command]
 fn cmd_validate_session(database: State<Database>, token: String) -> Result<User, String> {
-    users::validate_session(&database, &token)
+    // Utiliser validate_session_unchecked pour permettre au frontend de voir must_change_password
+    users::validate_session_unchecked(&database, &token)
 }
 
 // ════════════════════ UTILISATEURS ════════════════════
@@ -83,6 +91,13 @@ fn require_role(db: &Database, token: &str, roles: &[&str]) -> Result<User, Stri
     let user = users::validate_session(db, token)?;
     if roles.contains(&user.role.as_str()) { Ok(user) }
     else { Err(format!("Accès refusé. Rôle requis : {}", roles.join(" ou "))) }
+}
+
+fn sign_data(data: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data.as_bytes());
+    hasher.update(b"ABMed-SECURE-SALT-2026"); // Sel statique pour l'intégrité
+    format!("{:x}", hasher.finalize())
 }
 
 #[tauri::command]
@@ -97,6 +112,8 @@ fn cmd_create_user(database: State<Database>, audit_database: State<AuditDatabas
     users::validate_input(&req.username, "Nom d'utilisateur", 3, 50)?;
     users::validate_input(&req.full_name, "Nom complet", 2, 100)?;
     users::validate_password(&req.password)?;
+    // Validation du rôle
+    users::validate_role(&req.role)?;
     let user = users::create_user(&database, &req)?;
     audit_database.log_user_action(&admin.id, &admin.username,
         "CREATE_USER", "user", &user.id,
@@ -107,6 +124,10 @@ fn cmd_create_user(database: State<Database>, audit_database: State<AuditDatabas
 #[tauri::command]
 fn cmd_update_user(database: State<Database>, audit_database: State<AuditDatabase>, token: String, user_id: String, req: UpdateUserRequest) -> Result<(), String> {
     let admin = require_role(&database, &token, &["admin"])?;
+    // Validation du rôle si fourni
+    if let Some(ref role) = req.role {
+        users::validate_role(role)?;
+    }
     users::update_user(&database, &user_id, &req)?;
     audit_database.log_user_action(&admin.id, &admin.username,
         "UPDATE_USER", "user", &user_id,
@@ -126,7 +147,8 @@ fn cmd_change_password(database: State<Database>, audit_database: State<AuditDat
 
 #[tauri::command]
 fn cmd_change_own_password(database: State<Database>, audit_database: State<AuditDatabase>, token: String, current_password: String, new_password: String) -> Result<(), String> {
-    let user = users::validate_session(&database, &token)?;
+    // Utiliser validate_session_unchecked car changement de mot de passe est autorisé même si must_change_password
+    let user = users::validate_session_unchecked(&database, &token)?;
     users::validate_password(&new_password)?;
     // Vérifier le mot de passe actuel
     users::login(&database, &user.username, &current_password)?;
@@ -672,6 +694,29 @@ fn cmd_save_settings(database: State<Database>, token: String, settings: std::co
     storage::save_settings(&database, &settings)
 }
 
+// ════════════════════ MAINTENANCE ════════════════════
+
+#[tauri::command]
+fn cmd_backup_db(app_path: State<AppPath>, database: State<Database>, audit_database: State<AuditDatabase>, token: String) -> Result<String, String> {
+    let user = require_role(&database, &token, &["admin"])?;
+    
+    let backup_dir = app_path.0.join("backups");
+    std::fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
+    
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let inspections_backup = backup_dir.join(format!("inspections_{}.db", timestamp));
+    let audit_backup = backup_dir.join(format!("audit_{}.db", timestamp));
+    
+    database.backup(&inspections_backup)?;
+    audit_database.backup(&audit_backup)?;
+    
+    audit_database.log_user_action(&user.id, &user.username, 
+        "BACKUP_DB", "system", "all", &format!("Sauvegardes créées : {} et {}", 
+        inspections_backup.display(), audit_backup.display()));
+        
+    Ok(format!("Sauvegardes créées avec succès dans le dossier backups"))
+}
+
 // ════════════════════ MAIN ════════════════════
 
 fn main() {
@@ -695,6 +740,23 @@ fn main() {
 
     // Exécuter la migration si nécessaire
     if migration::should_migrate(&database) {
+        // Sauvegarde de sécurité avant migration
+        let pre_timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let backup_dir = app_dir.join("backups");
+        let _ = std::fs::create_dir_all(&backup_dir);
+        let _ = database.backup(&backup_dir.join(format!("inspections_pre_mig_{}.db", pre_timestamp)));
+        let _ = audit_database.backup(&backup_dir.join(format!("audit_pre_mig_{}.db", pre_timestamp)));
+
+        // Exporter en JSON signé avant migration
+        if let Ok(json_data) = database.export_to_json() {
+            let signature = sign_data(&json_data);
+            let json_path = backup_dir.join(format!("inspections_pre_mig_{}.json", pre_timestamp));
+            if let Ok(mut file) = std::fs::File::create(&json_path) {
+                let _ = writeln!(file, "{}", json_data);
+                let _ = writeln!(file, "// SIGNATURE: {}", signature);
+            }
+        }
+
         println!("Migration des grilles hardcodées vers la base de données...");
         match migration::migrate_hardcoded_grids_to_db(&database, &audit_database) {
             Ok(count) => {
@@ -715,8 +777,29 @@ fn main() {
     // Log démarrage
     audit_database.log_action(None, None, "APP_START", Some("system"), None, None);
 
+    // Tâche de sauvegarde périodique (toutes les 4 heures)
+    let db_clone = database.clone();
+    let audit_db_clone = audit_database.clone();
+    let app_dir_clone = app_dir.clone();
+    tauri::async_runtime::spawn(async move {
+        let interval = std::time::Duration::from_secs(3600 * 4);
+        loop {
+            tokio::time::sleep(interval).await;
+            let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+            let auto_backup_dir = app_dir_clone.join("backups").join("auto");
+            let _ = std::fs::create_dir_all(&auto_backup_dir);
+            
+            let _ = db_clone.backup(&auto_backup_dir.join(format!("inspections_auto_{}.db", ts)));
+            let _ = audit_db_clone.backup(&auto_backup_dir.join(format!("audit_auto_{}.db", ts)));
+            
+            audit_db_clone.log_action(None, None, "AUTO_BACKUP", Some("system"), None, 
+                Some(&format!("Sauvegarde périodique réalisée à {}", ts)));
+        }
+    });
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(AppPath(app_dir.clone()))
         .manage(database)
         .manage(audit_database)
         .invoke_handler(tauri::generate_handler![
@@ -747,6 +830,8 @@ fn main() {
             cmd_list_indisponibilites, cmd_create_indisponibilite, cmd_delete_indisponibilite,
             // Settings
             cmd_get_settings, cmd_save_settings,
+            // Maintenance
+            cmd_backup_db,
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors du lancement de l'application");

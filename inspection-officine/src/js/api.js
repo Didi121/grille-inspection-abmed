@@ -5,7 +5,7 @@ import { buildAllGridsJS } from './grids-data.js';
 
 export async function invoke(cmd, args={}) {
   if (isTauri) return await window.__TAURI_INTERNALS__.invoke(cmd, args);
-  return fallback(cmd, args);
+  return await fallback(cmd, args);
 }
 
 export const DB = { users: [], inspections: [], responses: {}, audit: [], sessions: {}, grids: [], gridVersions: [], reportSnapshots: [], planning: [], indisponibilites: [], settings: {} };
@@ -46,56 +46,87 @@ function loadDB() {
   } catch(e){}
 }
 
-// Hash simple salé pour le mode fallback (fonctionne en file:// sans crypto.subtle)
-function hashPwd(pwd) {
-  const str = pwd + '_ipharma_salt_2026';
-  let h1=0xdeadbeef, h2=0x41c6ce57;
-  for(let i=0;i<str.length;i++){
-    const ch=str.charCodeAt(i);
-    h1=Math.imul(h1^ch,2654435761);
-    h2=Math.imul(h2^ch,1597334677);
-  }
-  h1=Math.imul(h1^(h1>>>16),2246822507);
-  h1^=Math.imul(h2^(h2>>>13),3266489909);
-  h2=Math.imul(h2^(h2>>>16),2246822507);
-  h2^=Math.imul(h1^(h1>>>13),3266489909);
-  return (4294967296*(2097151&h2)+(h1>>>0)).toString(36)+'x'+(4294967296*(2097151&h1)+(h2>>>0)).toString(36);
+// Hash sécurisé PBKDF2 pour le mode fallback
+async function hashPwd(pwd) {
+  const enc = new TextEncoder();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey('raw', enc.encode(pwd), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 100000 },
+    key,
+    256
+  );
+  const saltB64 = btoa(String.fromCharCode(...salt));
+  const hashB64 = btoa(String.fromCharCode(...new Uint8Array(bits)));
+  return `pbkdf2$${saltB64}$${hashB64}`;
 }
 
-function verifyPwd(pwd, hash) { return hashPwd(pwd) === hash; }
+async function verifyPwd(pwd, hash) {
+  if (!hash || !hash.startsWith('pbkdf2$')) {
+    // Ancien format - migration nécessaire, considéré comme invalide
+    return false;
+  }
+  const parts = hash.split('$');
+  if (parts.length !== 3) return false;
+  const saltB64 = parts[1];
+  const expectedHashB64 = parts[2];
+  const salt = new Uint8Array([...atob(saltB64)].map(c => c.charCodeAt(0)));
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(pwd), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 100000 },
+    key,
+    256
+  );
+  const hashB64 = btoa(String.fromCharCode(...new Uint8Array(bits)));
+  return hashB64 === expectedHashB64;
+}
 
 function addAudit(userId, username, action, entityType, entityId, details) {
   DB.audit.unshift({ id: DB.audit.length+1, timestamp: now(), user_id: userId, username, action, entity_type: entityType, entity_id: entityId, details });
   saveDB();
 }
 
-export function initFallbackDB() {
+export async function initFallbackDB() {
   loadDB();
   if (!DB.users.length) {
+    // Générer un mot de passe aléatoire pour l'admin
+    const tempAdminPwd = Array.from(crypto.getRandomValues(new Uint8Array(12)))
+      .map(b => (b % 36).toString(36))
+      .join('')
+      .replace(/(\d)/g, c => String.fromCharCode(97 + parseInt(c)));
+    
     DB.users.push({ id:crypto.randomUUID(), username:'admin', full_name:'Administrateur', role:'admin', active:true,
-      password_hash: hashPwd('admin123'), must_change_password:true, created_at: now(), updated_at: now() });
-    DB.users.push({ id: crypto.randomUUID(), username:'inspecteur1', full_name:'Dr. Konou',
-      role:'inspector', active:true, password_hash: hashPwd('pass123'), must_change_password:true, created_at: now(), updated_at: now() });
-    DB.users.push({ id: crypto.randomUUID(), username:'chef1', full_name:'Dr. Tamou',
-      role:'lead_inspector', active:true, password_hash: hashPwd('pass123'), must_change_password:true, created_at: now(), updated_at: now() });
+      password_hash: await hashPwd(tempAdminPwd), must_change_password:true, created_at: now(), updated_at: now() });
+    
+    // Stocker le mot de passe temporaire pour affichage
+    DB.settings.temp_admin_password = tempAdminPwd;
+    
+    console.warn('%c╔════════════════════════════════════════════════════════════╗', 'color: #f59e0b; font-weight: bold;');
+    console.warn('%c║  PREMIER DÉMARRAGE - MOT DE PASSE ADMIN TEMPORAIRE         ║', 'color: #f59e0b; font-weight: bold;');
+    console.warn('%c╠════════════════════════════════════════════════════════════╣', 'color: #f59e0b; font-weight: bold;');
+    console.warn('%c║  Username: admin                                           ║', 'color: #f59e0b;');
+    console.warn(`%c║  Password: ${tempAdminPwd.padEnd(52)}║`, 'color: #f59e0b;');
+    console.warn('%c╠════════════════════════════════════════════════════════════╣', 'color: #f59e0b; font-weight: bold;');
+    console.warn('%c║  ⚠️  Changez ce mot de passe immédiatement après connexion  ║', 'color: #ef4444; font-weight: bold;');
+    console.warn('%c╚════════════════════════════════════════════════════════════╝', 'color: #f59e0b; font-weight: bold;');
   } else {
     // Migration/réparation : s'assurer que chaque user a un password_hash valide
-    const defaultPwds = { admin:'admin123', inspecteur1:'pass123', chef1:'pass123' };
+    const defaultPwds = { admin:null, inspecteur1:null, chef1:null }; // Plus de mots de passe par défaut
     let repaired = false;
     for (const u of DB.users) {
-      if (!u.password_hash) {
-        // Cas 1: ancien format avec password en clair
-        if (u.password) {
-          u.password_hash = hashPwd(u.password);
-          delete u.password;
-        } else {
-          // Cas 2: données corrompues (ni password ni hash) -> reset au défaut
-          u.password_hash = hashPwd(defaultPwds[u.username] || 'changeme');
-        }
+      if (!u.password_hash || !u.password_hash.startsWith('pbkdf2$')) {
+        // Migration vers PBKDF2 ou réparation - générer un mot de passe aléatoire
+        const randomPwd = Array.from(crypto.getRandomValues(new Uint8Array(12)))
+          .map(b => (b % 36).toString(36))
+          .join('');
+        u.password_hash = await hashPwd(randomPwd);
+        u.must_change_password = true;
         repaired = true;
+        console.warn(`Mot de passe réinitialisé pour ${u.username}: ${randomPwd} (doit être changé)`);
       }
     }
-    if (repaired) addAudit(null, 'system', 'REPAIR_PASSWORDS', 'security', null, 'Réparation mots de passe corrompus');
+    if (repaired) addAudit(null, 'system', 'REPAIR_PASSWORDS', 'security', null, 'Migration vers PBKDF2 avec mots de passe aléatoires');
   }
   if (!DB.grids.length) {
     DB.grids = buildAllGridsJS().map(g=>({...g, status:'active', is_current:true, created_at:now()}));
@@ -103,8 +134,8 @@ export function initFallbackDB() {
   saveDB();
 }
 
-function fallback(cmd, a) {
-  initFallbackDB();
+async function fallback(cmd, a) {
+  await initFallbackDB();
   switch(cmd) {
     case 'list_grids': {
       if(!a?.token||!DB.sessions[a.token]) throw 'Non authentifié';
@@ -112,7 +143,7 @@ function fallback(cmd, a) {
     }
     case 'cmd_login': {
       const u = DB.users.find(x=>x.username===a.username&&x.active);
-      if(!u || !verifyPwd(a.password, u.password_hash)) throw 'Identifiants incorrects';
+      if(!u || !(await verifyPwd(a.password, u.password_hash))) throw 'Identifiants incorrects';
       const tok = crypto.randomUUID();
       DB.sessions[tok] = u.id;
       addAudit(u.id, u.username, 'LOGIN', 'session', tok, '');
@@ -121,9 +152,9 @@ function fallback(cmd, a) {
     case 'cmd_change_own_password': {
       const uid=DB.sessions[a.token]; if(!uid) throw 'Non authentifié';
       const u=DB.users.find(x=>x.id===uid);
-      if(!u || !verifyPwd(a.currentPassword, u.password_hash)) throw 'Mot de passe actuel incorrect';
+      if(!u || !(await verifyPwd(a.currentPassword, u.password_hash))) throw 'Mot de passe actuel incorrect';
       validatePassword(a.newPassword);
-      u.password_hash = hashPwd(a.newPassword);
+      u.password_hash = await hashPwd(a.newPassword);
       u.must_change_password = false;
       u.updated_at = now();
       addAudit(u.id, u.username, 'CHANGE_OWN_PASSWORD', 'user', u.id, '');
@@ -144,7 +175,7 @@ function fallback(cmd, a) {
     }
     case 'cmd_list_users': return DB.users.map(u=>({id:u.id,username:u.username,full_name:u.full_name,role:u.role,active:u.active,created_at:u.created_at,updated_at:u.updated_at}));
     case 'cmd_create_user': {
-      const nu = {id:crypto.randomUUID(), username:a.req.username, full_name:a.req.full_name, role:a.req.role, password_hash: hashPwd(a.req.password), active:true, created_at:now(), updated_at:now()};
+      const nu = {id:crypto.randomUUID(), username:a.req.username, full_name:a.req.full_name, role:a.req.role, password_hash: await hashPwd(a.req.password), active:true, created_at:now(), updated_at:now()};
       DB.users.push(nu); addAudit(null,null,'CREATE_USER','user',nu.id,nu.username);
       return {id:nu.id,username:nu.username,full_name:nu.full_name,role:nu.role,active:true,created_at:nu.created_at,updated_at:nu.updated_at};
     }
@@ -155,7 +186,7 @@ function fallback(cmd, a) {
     }
     case 'cmd_change_password': {
       const u=DB.users.find(x=>x.id===a.userId);
-      if(u) u.password_hash=hashPwd(a.newPassword);
+      if(u) u.password_hash=await hashPwd(a.newPassword);
       addAudit(state.session?.user?.id,state.session?.user?.username,'CHANGE_PASSWORD','user',a.userId,'');
       saveDB(); return null;
     }
@@ -305,7 +336,13 @@ function fallback(cmd, a) {
       const g=DB.grids.find(x=>x.id===a.gridId);
       return g?JSON.stringify(g,null,2):'{}';
     }
-    case 'cmd_export_audit_csv': return 'timestamp,action,user,details\n'+DB.audit.map(l=>l.timestamp+','+l.action+','+(l.username||'')+','+(l.details||'')).join('\n');
+    case 'cmd_export_audit_csv': {
+      const csvEscape = v => '"' + String(v||'').replace(/"/g, '""') + '"';
+      const header = 'timestamp,action,user,details';
+      return [header, ...DB.audit.map(l =>
+        [l.timestamp, l.action, l.username, l.details].map(csvEscape).join(',')
+      )].join('\n');
+    }
     case 'cmd_export_audit_json': return JSON.stringify(DB.audit,null,2);
 
     // ═══════════ SNAPSHOTS RAPPORT ═══════════

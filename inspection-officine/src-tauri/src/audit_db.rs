@@ -1,6 +1,6 @@
 use rusqlite::{Connection, params};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, Arc};
 use serde::{Deserialize, Serialize};
 
 /// Structure pour représenter une entrée d'audit
@@ -32,8 +32,9 @@ pub struct AuditFilter {
 }
 
 /// Base de données d'audit séparée (pour immuabilité et compliance)
+#[derive(Clone)]
 pub struct AuditDatabase {
-    pub conn: Mutex<Connection>,
+    pub conn: Arc<Mutex<Connection>>,
 }
 
 impl AuditDatabase {
@@ -67,7 +68,7 @@ impl AuditDatabase {
             CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
         ").expect("Erreur création table audit_log");
 
-        AuditDatabase { conn: Mutex::new(conn) }
+        AuditDatabase { conn: Arc::new(Mutex::new(conn)) }
     }
 
     pub fn backup(&self, backup_path: &std::path::Path) -> Result<(), String> {

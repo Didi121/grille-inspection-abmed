@@ -513,3 +513,85 @@ function gauge(label, pct) {
     <div style="height:10px;background:var(--gray-100);border-radius:5px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${color};border-radius:5px;transition:width 0.5s"></div></div>
   </div>`;
 }
+
+// ═══════════════════ EXPORT INDICATEURS CSV ═══════════════════
+export async function exportIndicateursCSV() {
+  if (!_cache) {
+    await renderAnalytics();
+    if (!_cache) { alert('Aucun indicateur disponible. Lancez une inspection terminée d\'abord.'); return; }
+  }
+  const { kpis, riskByEstab, ecartsBySection, inspectorLoad, ratesOverTime, byMonth, byType, byStatus, deptCoverage } = _cache;
+  const date = new Date().toISOString().substring(0,10);
+  const BOM = '\uFEFF', SEP = ';';
+  const q = v => `"${String(v??'').replace(/"/g,'""')}"`;
+  const row = (...cols) => cols.map(q).join(SEP);
+  const lines = [];
+
+  lines.push(row('=== KPIs GLOBAUX ===', `Généré le ${date}`));
+  lines.push(row('Indicateur','Valeur'));
+  lines.push(row('Inspections totales', kpis.total));
+  lines.push(row('Taux de conformité moyen (%)', kpis.avgRate));
+  lines.push(row('Taux de validation (%)', kpis.tauxValidation));
+  lines.push(row('Écarts moyens par inspection', kpis.ecartsMoyens));
+  lines.push(row('Total écarts', kpis.totalEcarts));
+  lines.push(row('Critiques', kpis.totalCritiques));
+  lines.push(row('Majeurs', kpis.totalMajeurs));
+  lines.push(row('Mineurs', kpis.totalMineurs));
+  lines.push(row('CAPA attendus', kpis.capaAttendu));
+  lines.push(row('CAPA reçus', kpis.capaRecu));
+  lines.push(row('Taux retour CAPA (%)', kpis.tauxRetourCapa));
+  lines.push(row('Taux couverture géographique (%)', kpis.tauxCouverture));
+  lines.push('');
+
+  lines.push(row('=== PAR STATUT ==='));
+  lines.push(row('Statut','Nombre'));
+  const sl = { draft:'Brouillon', in_progress:'En cours', completed:'Terminée', validated:'Validée', archived:'Archivée' };
+  Object.entries(byStatus||{}).forEach(([s,n]) => lines.push(row(sl[s]||s, n)));
+  lines.push('');
+
+  lines.push(row('=== PROFIL DE RISQUE PAR ÉTABLISSEMENT ==='));
+  lines.push(row('Établissement','Département','Commune','Taux conformité (%)','Nb écarts','Niveau risque','Libellé'));
+  const rl = {1:'Conforme',2:'Sous réserve',3:'Non conforme',4:'Risque immédiat'};
+  Object.entries(riskByEstab||{}).sort((a,b)=>b[1].risk.level-a[1].risk.level).forEach(([name,d]) =>
+    lines.push(row(name, d.dept, d.commune, d.rate, d.ecarts, d.risk.level, rl[d.risk.level]||'')));
+  lines.push('');
+
+  lines.push(row('=== ÉCARTS PAR SECTION ==='));
+  lines.push(row('Section','Critiques','Majeurs','Mineurs','Observations','Total'));
+  Object.entries(ecartsBySection||{}).sort((a,b)=>b[1].total-a[1].total).forEach(([name,d]) =>
+    lines.push(row(name, d.critique||0, d.majeur||0, d.mineur||0, d.info||0, d.total)));
+  lines.push('');
+
+  lines.push(row('=== TENDANCE MENSUELLE ==='));
+  lines.push(row('Mois','Volume','Taux conformité (%)'));
+  const months = [...new Set([...Object.keys(byMonth||{}), ...(ratesOverTime||[]).map(r=>r.month)])].sort();
+  months.forEach(m => {
+    const vol = (byMonth||{})[m]||0;
+    const re = (ratesOverTime||[]).find(r=>r.month===m);
+    lines.push(row(m, vol, re ? re.avg.toFixed(1) : ''));
+  });
+  lines.push('');
+
+  lines.push(row('=== CHARGE PAR INSPECTEUR ==='));
+  lines.push(row('Inspecteur','Total','En cours','Terminées','Validées','Taux val. (%)'));
+  Object.entries(inspectorLoad||{}).sort((a,b)=>b[1].total-a[1].total).forEach(([name,d]) => {
+    const pct = d.total>0 ? (((d.validated||0)/d.total)*100).toFixed(1) : 0;
+    lines.push(row(name, d.total, d.in_progress||0, d.completed||0, d.validated||0, pct));
+  });
+  lines.push('');
+
+  lines.push(row('=== COUVERTURE GÉOGRAPHIQUE ==='));
+  lines.push(row('Département','Inspections','Communes inspectées','Total communes','Couverture (%)'));
+  (deptCoverage||[]).sort((a,b)=>b.inspections-a.inspections).forEach(d => {
+    const pct = d.communes_total>0 ? ((d.communes_inspectees/d.communes_total)*100).toFixed(1) : 0;
+    lines.push(row(d.nom, d.inspections, d.communes_inspectees, d.communes_total, pct));
+  });
+
+  const csv = BOM + lines.join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `indicateurs_${date}.csv`;
+  a.click();
+  if(window.showToast) window.showToast('Export indicateurs généré','info');
+}

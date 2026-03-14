@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=2.0
+Type=Application
+Name=Inspections Pharma
+Name[fr]=Inspections Pharma
+GenericName=Inspection Pharmaceutique
+GenericName[fr]=Application d'Inspection Pharmaceutique
+Comment=Système d'inspection pharmaceutique ABMed
+Comment[fr]=Grilles d'inspection officine et grossiste pour l'Agence Béninoise du Médicament
+Exec=/home/abdyhw/Documents/Grilles/inspection-multi-grilles-copy/inspection-officine/src-tauri/target/release/inspection-officine
+Icon=/home/abdyhw/Documents/Grilles/inspection-multi-grilles-copy/inspection-officine/src-tauri/icons/icon.png
+Terminal=false
+Categories=Office;Science;MedicalSoftware;
+Keywords=inspection;pharmacie;ABMed;Bénin;conformité;grille;
+StartupNotify=true
+StartupWMClass=inspection-officine

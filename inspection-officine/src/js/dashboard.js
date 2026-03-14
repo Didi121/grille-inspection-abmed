@@ -138,7 +138,12 @@ export async function viewReport(id) {
 // ═══════════════════ EXPORT CSV (Lead/Admin) ═══════════════════
 export async function exportAllInspCSV() {
   try {
-    const list = await invoke('cmd_list_inspections',{token:state.session.token, myOnly:false, status:null});
+    const [list, grids] = await Promise.all([
+      invoke('cmd_list_inspections',{token:state.session.token, myOnly:false, status:null}),
+      invoke('list_grids',{token:state.session.token})
+    ]);
+    const gridNames = {};
+    (grids||[]).forEach(g => { gridNames[g.id] = g.name; });
     const headers = [
       'ID','Date inspection','Etablissement','Type inspection','Grille',
       'Inspecteur principal','Equipe inspection','Statut',
@@ -159,7 +164,7 @@ export async function exportAllInspCSV() {
         i.date_inspection || '',
         (i.establishment || '').replace(/"/g, '""'),
         i.inspection_type || '',
-        i.grid_id || '',
+        gridNames[i.grid_id] || i.grid_id || '',
         (m.lead_inspector || i.created_by_name || '').replace(/"/g, '""'),
         (i.inspectors || []).join(', ').replace(/"/g, '""'),
         statusLabel(i.status),

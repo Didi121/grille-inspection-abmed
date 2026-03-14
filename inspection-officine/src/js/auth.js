@@ -39,6 +39,8 @@ export async function afterLogin() {
   buildTopNav();
   window.showScreen('dash');
   window.loadDashboard();
+  // Initialiser la synchronisation cloud (si configurée)
+  if (window.initCloudSyncUI) window.initCloudSyncUI().catch(() => {});
 }
 
 export function showForcePasswordChange() {
@@ -86,6 +88,7 @@ export function buildTopNav() {
     <button class="nav-btn" data-s="planning" onclick="showScreen('planning')">Programmation</button>
     ${isAdmin||isLead?'<button class="nav-btn" data-s="analytics" onclick="showScreen(\'analytics\')">Analytique</button>':''}
     ${isAdmin||isLead?'<button class="nav-btn" data-s="audit" onclick="showScreen(\'audit\');renderAudit()">Audit</button>':''}
+    ${isAdmin?'<button class="nav-btn" data-s="backup" onclick="showScreen(\'backup\');renderBackup()">🗄️ Sauvegardes</button>':''}
   `;
   nav.style.display='flex';
 }

@@ -42,10 +42,25 @@ impl AuditDatabase {
     pub fn new(app_dir: PathBuf) -> Self {
         std::fs::create_dir_all(&app_dir).ok();
         let db_path = app_dir.join("audit.db");
+        
         let conn = Connection::open(&db_path)
             .expect("Impossible d'ouvrir la base de données audit");
 
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;").ok();
+        // Configuration pour améliorer les performances concurrentes
+        conn.execute_batch("
+            PRAGMA journal_mode=WAL;
+            PRAGMA foreign_keys=ON;
+            PRAGMA synchronous=NORMAL;
+            PRAGMA cache_size=1000;
+            PRAGMA temp_store=MEMORY;
+        ").expect("Erreur configuration base de données audit");
+
+        // Vérifier que le mode WAL est activé
+        let wal_mode: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("Impossible de vérifier le mode journal");
+        if wal_mode != "wal" {
+            eprintln!("⚠️  Mode WAL non activé pour audit: {}", wal_mode);
+        }
 
         // Créer la table audit_log si elle n'existe pas
         conn.execute_batch("
@@ -317,7 +332,7 @@ mod tests {
             CREATE INDEX idx_audit_action ON audit_log(action);
             CREATE INDEX idx_audit_entity ON audit_log(entity_type, entity_id);
         ").unwrap();
-        AuditDatabase { conn: Mutex::new(conn) }
+        AuditDatabase { conn: Arc::new(Mutex::new(conn)) }
     }
 
     fn empty_filter() -> AuditFilter {

@@ -7,3 +7,5 @@
 
 pub mod officine;
 pub mod grossiste;
+pub mod hopital;
+pub mod clinique;

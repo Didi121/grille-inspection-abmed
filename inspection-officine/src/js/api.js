@@ -10,6 +10,112 @@ export async function invoke(cmd, args={}) {
 
 export const DB = { users: [], inspections: [], responses: {}, audit: [], sessions: {}, grids: [], gridVersions: [], reportSnapshots: [], planning: [], indisponibilites: [], settings: {} };
 
+// Clé de chiffrement dérivée - stockée dans sessionStorage pour cette session uniquement
+let encryptionKey = null;
+
+// Fonction pour dériver une clé de chiffrement à partir d'un mot de passe
+async function deriveKey(password, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  
+  return await crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+// Fonction pour chiffrer des données
+async function encryptData(data, key) {
+  const iv = crypto.getRandomValues(new Uint8Array(12)); // IV de 12 octets pour GCM
+  const enc = new TextEncoder();
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv },
+    key,
+    enc.encode(JSON.stringify(data))
+  );
+  
+  // Retourner IV + données chiffrées en base64
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  
+  return btoa(String.fromCharCode(...combined));
+}
+
+// Fonction pour déchiffrer des données
+async function decryptData(encryptedData, key) {
+  try {
+    const combined = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: iv },
+      key,
+      ciphertext
+    );
+    
+    const dec = new TextDecoder();
+    return JSON.parse(dec.decode(decrypted));
+  } catch (e) {
+    console.error('Erreur de déchiffrement:', e);
+    throw new Error('Échec du déchiffrement - données corrompues ou mot de passe incorrect');
+  }
+}
+
+// Initialiser la clé de chiffrement
+async function initEncryptionKey() {
+  if (encryptionKey) return encryptionKey;
+  
+  // Essayer de récupérer une clé existante depuis sessionStorage
+  const storedKeyData = sessionStorage.getItem('db_encryption_key');
+  if (storedKeyData) {
+    try {
+      // La clé était stockée chiffrée, nous devons la déchiffrer
+      // Pour simplifier, utilisons une clé dérivée d'un secret statique
+      const salt = new Uint8Array([...atob('YWJtZWQta2V5LXNhbHQ=')].map(c => c.charCodeAt(0))); // "abmed-key-salt"
+      const masterKey = await deriveKey('abmed-master-secret-2026', salt);
+      encryptionKey = await decryptData(storedKeyData, masterKey);
+      return encryptionKey;
+    } catch(e) {
+      console.warn('Impossible de déchiffrer la clé de chiffrement, génération d\'une nouvelle clé');
+    }
+  }
+  
+  // Générer une nouvelle clé aléatoire
+  encryptionKey = await crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
+  );
+  
+  // Stocker la clé chiffrée dans sessionStorage
+  try {
+    const salt = new Uint8Array([...atob('YWJtZWQta2V5LXNhbHQ=')].map(c => c.charCodeAt(0))); // "abmed-key-salt"
+    const masterKey = await deriveKey('abmed-master-secret-2026', salt);
+    const encryptedKey = await encryptData(encryptionKey, masterKey);
+    sessionStorage.setItem('db_encryption_key', encryptedKey);
+  } catch(e) {
+    console.warn('Impossible de stocker la clé de chiffrement:', e);
+  }
+  
+  return encryptionKey;
+}
+
 function saveDB() {
   try {
     const d = {
@@ -24,26 +130,54 @@ function saveDB() {
       indisponibilites: DB.indisponibilites,
       settings: DB.settings
     };
-    localStorage.setItem('ipharma_db', JSON.stringify(d));
-  } catch(e){}
+    
+    // Chiffrer les données avant de les stocker
+    initEncryptionKey().then(key => {
+      encryptData(d, key).then(encrypted => {
+        localStorage.setItem('ipharma_db', encrypted);
+      }).catch(e => {
+        console.error('Erreur de chiffrement:', e);
+      });
+    });
+  } catch(e){
+    console.error('Erreur dans saveDB:', e);
+  }
 }
 
-function loadDB() {
+async function loadDB() {
   try {
-    const d = JSON.parse(localStorage.getItem('ipharma_db')||localStorage.getItem('abmed_db_v2')||'null');
-    if(d){
-      DB.users = d.users||[];
-      DB.inspections = d.inspections||[];
-      DB.responses = d.responses||{};
-      DB.audit = d.audit||[];
-      DB.grids = d.grids||[];
-      DB.gridVersions = d.gridVersions||[];
-      DB.reportSnapshots = d.reportSnapshots||[];
-      DB.planning = d.planning||[];
-      DB.indisponibilites = d.indisponibilites||[];
-      DB.settings = d.settings||{};
+    const encryptedData = localStorage.getItem('ipharma_db') || localStorage.getItem('abmed_db_v2');
+    if (encryptedData) {
+      const key = await initEncryptionKey();
+      const d = await decryptData(encryptedData, key);
+      
+      if(d){
+        DB.users = d.users||[];
+        DB.inspections = d.inspections||[];
+        DB.responses = d.responses||{};
+        DB.audit = d.audit||[];
+        DB.grids = d.grids||[];
+        DB.gridVersions = d.gridVersions||[];
+        DB.reportSnapshots = d.reportSnapshots||[];
+        DB.planning = d.planning||[];
+        DB.indisponibilites = d.indisponibilites||[];
+        DB.settings = d.settings||{};
+      }
     }
-  } catch(e){}
+  } catch(e){
+    console.error('Erreur de déchiffrement des données:', e);
+    // En cas d'erreur de déchiffrement, initialiser avec des valeurs par défaut
+    DB.users = [];
+    DB.inspections = [];
+    DB.responses = {};
+    DB.audit = [];
+    DB.grids = [];
+    DB.gridVersions = [];
+    DB.reportSnapshots = [];
+    DB.planning = [];
+    DB.indisponibilites = [];
+    DB.settings = {};
+  }
 }
 
 // Hash sécurisé PBKDF2 pour le mode fallback
@@ -88,7 +222,7 @@ function addAudit(userId, username, action, entityType, entityId, details) {
 }
 
 export async function initFallbackDB() {
-  loadDB();
+  await loadDB();
   if (!DB.users.length) {
     // Générer un mot de passe aléatoire pour l'admin
     const tempAdminPwd = Array.from(crypto.getRandomValues(new Uint8Array(12)))
@@ -397,6 +531,19 @@ async function fallback(cmd, a) {
     // ═══════════ SETTINGS ═══════════
     case 'cmd_get_settings': return DB.settings;
     case 'cmd_save_settings': { Object.assign(DB.settings, a.settings); saveDB(); return null; }
+
+    // ═══════════ BACKUP (mode navigateur : export/import localStorage) ═══════════
+    case 'cmd_list_backups':    return [];           // Pas de backups SQLite en mode navigateur
+    case 'cmd_backup_db':       return 'local_mode'; // Indiquer mode non-Tauri
+    case 'cmd_restore_db':      throw 'La restauration SQLite nécessite le mode application (Tauri). Utilisez l\'export/import JSON.';
+    case 'cmd_delete_backup':   return null;
+    case 'cmd_configure_backup': {
+      // Persister dans DB.settings pour cohérence
+      if (a.intervalHours)  DB.settings.backup_interval_hours = a.intervalHours;
+      if (a.maxAutoBackups) DB.settings.max_auto_backups = a.maxAutoBackups;
+      saveDB(); return null;
+    }
+
     case 'get_grid': {
       if(!a?.token||!DB.sessions[a.token]) throw 'Non authentifié';
       const g=DB.grids.find(x=>x.id===a.gridId&&x.status==='active');

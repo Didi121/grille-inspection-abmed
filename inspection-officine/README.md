@@ -111,4 +111,27 @@ npm run build        # production
 
 ---
 
+## Sécurité
+
+Cette application utilise plusieurs couches de sécurité :
+
+### 🔐 Chiffrement des bases de données
+Les bases de données SQLite sont chiffrées avec SQLCipher :
+- `inspections.db` : données d'inspection
+- `audit.db` : journaux d'audit
+
+Les clés de chiffrement peuvent être configurées via :
+- `SQLCIPHER_KEY` : clé pour la base principale
+- `SQLCIPHER_AUDIT_KEY` : clé pour la base d'audit
+
+### 🛡️ Chiffrement en mode navigateur
+En mode fallback (navigateur), les données localStorage sont chiffrées :
+- AES-GCM 256 bits
+- Clés générées aléatoirement à chaque session
+
+### ⚠️ Avertissement développement
+Le mode navigateur ne doit être utilisé qu'à des fins de développement et ne convient pas pour la production.
+
+---
+
 *ABMed — Réf : IP-PC-0001 · Confidentiel*

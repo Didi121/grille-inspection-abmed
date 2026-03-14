@@ -14,7 +14,7 @@ tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
 bcrypt = "0.15"
 uuid = { version = "1", features = ["v4"] }
 dirs-next = "2.0"
@@ -22,3 +22,8 @@ rand = "0.8"
 sha2 = "0.10"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
+printpdf = "0.7"
+log = "0.4"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

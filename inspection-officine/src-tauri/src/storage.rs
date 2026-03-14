@@ -589,7 +589,7 @@ mod tests {
     use super::*;
     use crate::db::Database;
     use rusqlite::Connection;
-    use std::sync::Mutex;
+    use std::sync::{Mutex, Arc};
 
     fn create_test_db() -> Database {
         let conn = Connection::open_in_memory().unwrap();
@@ -634,7 +634,7 @@ mod tests {
             [],
         ).unwrap();
 
-        Database { conn: Mutex::new(conn) }
+        Database { conn: Arc::new(Mutex::new(conn)) }
     }
 
     fn insert_inspection(db: &Database, id: &str, status: &str) {

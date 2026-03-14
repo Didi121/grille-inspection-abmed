@@ -246,6 +246,7 @@ pub fn validate_role(role: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     // ── Tests de validation ──
 
@@ -342,7 +343,7 @@ mod tests {
             params![hash],
         ).unwrap();
 
-        Database { conn: Mutex::new(conn) }
+        Database { conn: Arc::new(Mutex::new(conn)) }
     }
 
     #[test]
@@ -371,6 +372,7 @@ mod tests {
     fn test_validate_session() {
         let db = create_test_db();
         let session = login(&db, "admin", "Test1234").unwrap();
+        clear_must_change_password(&db, &session.user.id).unwrap();
         let user = validate_session(&db, &session.token);
         assert!(user.is_ok());
         assert_eq!(user.unwrap().username, "admin");

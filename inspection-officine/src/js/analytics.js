@@ -6,6 +6,9 @@ import { esc } from './utils.js';
 import { DEPARTEMENTS, COMMUNE_TO_DEPT } from './benin-data.js';
 import { adjustSeverity, determineComplianceRisk, determineGlobalRisk } from './risk-engine.js';
 
+// Cache des indicateurs calculés — mis à jour à chaque renderAnalytics()
+let _cache = null;
+
 export async function renderAnalytics() {
   const panel = document.getElementById('analyticsPanel');
   panel.innerHTML = '<p style="text-align:center;padding:40px;color:var(--text-muted)">Chargement des donnees...</p>';
@@ -13,6 +16,7 @@ export async function renderAnalytics() {
   try {
     const list = await invoke('cmd_list_inspections', { token: state.session.token, myOnly: false, status: null });
     if (!list.length) {
+      _cache = null; // Pas de données — réinitialiser explicitement
       panel.innerHTML = '<div style="text-align:center;padding:60px"><span style="font-size:48px;display:block;margin-bottom:16px">📊</span><h2>Aucune donnee</h2><p style="color:var(--text-muted)">Aucune inspection enregistree pour le moment.</p></div>';
       return;
     }
@@ -211,6 +215,17 @@ export async function renderAnalytics() {
     const tauxCouverture = totalCommunes > 0 ? (totalCommunesCouvertes / totalCommunes * 100).toFixed(0) : 0;
     const ecartsMoyens = inspWithResponses.length > 0 ? (totalEcarts / inspWithResponses.length).toFixed(1) : '—';
 
+    // ── Mise en cache des indicateurs pour l'export CSV ──
+    _cache = {
+      generatedAt: new Date().toISOString(),
+      kpis: { total, avgRate, tauxValidation, ecartsMoyens, tauxRetourCapa, tauxCloture, tauxCouverture,
+              totalEcarts, totalCritiques, totalMajeurs, totalMineurs, totalObs,
+              capaAttendu, capaRecu, capaEnRetard, rapportEnvoye, rapportNonEnvoye, inspCloturees,
+              deptAvecInspection, totalCommunesCouvertes, totalCommunes },
+      riskByEstab, rateByEstab, ecartsBySection, inspectorLoad,
+      ratesOverTime, byMonth, byType, byStatus, deptCoverage, riskLevels
+    };
+
     // ═══════════════════ RENDU HTML ═══════════════════
     const statusLabels = { draft: 'Brouillon', in_progress: 'En cours', completed: 'Terminee', validated: 'Validee', archived: 'Archivee' };
     const riskLabels = { 1: 'Conforme', 2: 'Sous reserve', 3: 'Non conforme', 4: 'Risque immediat' };
@@ -223,7 +238,7 @@ export async function renderAnalytics() {
           <p style="font-size:13px;color:var(--text-muted);margin-top:4px">Indicateurs cles pour la prise de decision basee sur le risque</p>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn-sm" onclick="exportAllInspCSV()">Exporter CSV</button>
+          <button class="btn-sm" onclick="exportIndicateursCSV()">Exporter indicateurs CSV</button>
           <button class="btn-sm" onclick="renderAnalytics()">Actualiser</button>
         </div>
       </div>
@@ -477,6 +492,124 @@ export async function renderAnalytics() {
   } catch (e) {
     panel.innerHTML = `<p style="color:var(--accent);padding:20px">Erreur: ${e}</p>`;
   }
+}
+
+// ═══════════════════ EXPORT INDICATEURS CSV ═══════════════════
+
+export async function exportIndicateursCSV() {
+  // Si le cache n'est pas prêt, recalculer d'abord
+  if (!_cache) {
+    await renderAnalytics();
+    if (!_cache) { alert('Aucun indicateur disponible. Lancez une inspection terminée d\'abord.'); return; }
+  }
+  const { kpis, riskByEstab, ecartsBySection, inspectorLoad, ratesOverTime, byMonth, byType, byStatus, deptCoverage } = _cache;
+  const date = new Date().toISOString().substring(0, 10);
+  const BOM = '\uFEFF';
+  const SEP = ';';
+  const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const row = (...cols) => cols.map(q).join(SEP);
+  const lines = [];
+
+  // ── Section 1 : KPIs globaux ──
+  lines.push(row('=== KPIs GLOBAUX ===', `Généré le ${date}`));
+  lines.push(row('Indicateur', 'Valeur'));
+  lines.push(row('Inspections totales', kpis.total));
+  lines.push(row('Taux de conformité moyen (%)', kpis.avgRate));
+  lines.push(row('Taux de validation (%)', kpis.tauxValidation));
+  lines.push(row('Écarts moyens par inspection', kpis.ecartsMoyens));
+  lines.push(row('Total écarts', kpis.totalEcarts));
+  lines.push(row('Écarts critiques', kpis.totalCritiques));
+  lines.push(row('Écarts majeurs', kpis.totalMajeurs));
+  lines.push(row('Écarts mineurs', kpis.totalMineurs));
+  lines.push(row('Observations', kpis.totalObs));
+  lines.push(row('Ratio critique+majeur (%)', kpis.totalEcarts > 0 ? (((kpis.totalCritiques + kpis.totalMajeurs) / kpis.totalEcarts) * 100).toFixed(1) : 0));
+  lines.push(row('CAPA attendus', kpis.capaAttendu));
+  lines.push(row('CAPA reçus', kpis.capaRecu));
+  lines.push(row('CAPA en retard', kpis.capaEnRetard));
+  lines.push(row('Taux retour CAPA (%)', kpis.tauxRetourCapa));
+  lines.push(row('Rapports envoyés', kpis.rapportEnvoye));
+  lines.push(row('Rapports non envoyés', kpis.rapportNonEnvoye));
+  lines.push(row('Dossiers clôturés', kpis.inspCloturees));
+  lines.push(row('Taux clôture (%)', kpis.tauxCloture));
+  lines.push(row('Départements couverts', `${kpis.deptAvecInspection}/12`));
+  lines.push(row('Communes couvertes', `${kpis.totalCommunesCouvertes}/${kpis.totalCommunes}`));
+  lines.push(row('Taux couverture géographique (%)', kpis.tauxCouverture));
+  lines.push('');
+
+  // ── Section 2 : Par statut ──
+  lines.push(row('=== RÉPARTITION PAR STATUT ==='));
+  lines.push(row('Statut', 'Nombre', '% du total'));
+  const statusLabels = { draft:'Brouillon', in_progress:'En cours', completed:'Terminée', validated:'Validée', archived:'Archivée' };
+  Object.entries(byStatus).sort((a,b) => b[1]-a[1]).forEach(([s,n]) =>
+    lines.push(row(statusLabels[s]||s, n, kpis.total > 0 ? ((n/kpis.total)*100).toFixed(1) : 0)));
+  lines.push('');
+
+  // ── Section 3 : Par type d'inspection ──
+  lines.push(row('=== RÉPARTITION PAR TYPE D\'INSPECTION ==='));
+  lines.push(row('Type', 'Nombre', '% du total'));
+  Object.entries(byType).sort((a,b) => b[1]-a[1]).forEach(([t,n]) =>
+    lines.push(row(t, n, kpis.total > 0 ? ((n/kpis.total)*100).toFixed(1) : 0)));
+  lines.push('');
+
+  // ── Section 4 : Profil de risque par établissement ──
+  lines.push(row('=== PROFIL DE RISQUE PAR ÉTABLISSEMENT ==='));
+  lines.push(row('Établissement', 'Département', 'Commune', 'Taux conformité (%)', 'Nb écarts', 'Niveau risque', 'Libellé risque', 'Dernière inspection'));
+  const riskLabels = { 1:'Conforme', 2:'Sous réserve', 3:'Non conforme', 4:'Risque immédiat' };
+  Object.entries(riskByEstab)
+    .sort((a,b) => b[1].risk.level - a[1].risk.level || b[1].ecarts - a[1].ecarts)
+    .forEach(([name, d]) =>
+      lines.push(row(name, d.dept, d.commune, d.rate, d.ecarts, d.risk.level, riskLabels[d.risk.level]||'', d.date)));
+  lines.push('');
+
+  // ── Section 5 : Écarts par section ──
+  lines.push(row('=== ÉCARTS PAR SECTION ==='));
+  lines.push(row('Section', 'Critiques', 'Majeurs', 'Mineurs', 'Observations', 'Total', 'Score impact'));
+  Object.entries(ecartsBySection)
+    .sort((a,b) => b[1].total - a[1].total)
+    .forEach(([name, d]) => {
+      const score = (d.critique||0)*4 + (d.majeur||0)*2 + (d.mineur||0)*1;
+      lines.push(row(name, d.critique||0, d.majeur||0, d.mineur||0, d.info||0, d.total, score));
+    });
+  lines.push('');
+
+  // ── Section 6 : Tendance mensuelle ──
+  lines.push(row('=== TENDANCE MENSUELLE ==='));
+  lines.push(row('Mois', 'Volume inspections', 'Taux conformité moyen (%)'));
+  const months = [...new Set([...Object.keys(byMonth), ...ratesOverTime.map(r => r.month)])].sort();
+  months.forEach(m => {
+    const vol = byMonth[m] || 0;
+    const rateEntry = ratesOverTime.find(r => r.month === m);
+    lines.push(row(m, vol, rateEntry ? rateEntry.avg.toFixed(1) : ''));
+  });
+  lines.push('');
+
+  // ── Section 7 : Charge par inspecteur ──
+  lines.push(row('=== CHARGE PAR INSPECTEUR ==='));
+  lines.push(row('Inspecteur', 'Total', 'Brouillon', 'En cours', 'Terminées', 'Validées', 'Taux validation (%)'));
+  Object.entries(inspectorLoad)
+    .sort((a,b) => b[1].total - a[1].total)
+    .forEach(([name, d]) => {
+      const pctVal = d.total > 0 ? (((d.validated||0)/d.total)*100).toFixed(1) : 0;
+      lines.push(row(name, d.total, d.draft||0, d.in_progress||0, d.completed||0, d.validated||0, pctVal));
+    });
+  lines.push('');
+
+  // ── Section 8 : Couverture géographique ──
+  lines.push(row('=== COUVERTURE GÉOGRAPHIQUE PAR DÉPARTEMENT ==='));
+  lines.push(row('Département', 'Inspections', 'Communes inspectées', 'Total communes', 'Couverture (%)'));
+  deptCoverage.sort((a,b) => b.inspections - a.inspections).forEach(d => {
+    const pct = d.communes_total > 0 ? ((d.communes_inspectees/d.communes_total)*100).toFixed(1) : 0;
+    lines.push(row(d.nom, d.inspections, d.communes_inspectees, d.communes_total, pct));
+  });
+
+  // ── Téléchargement ──
+  const csv = BOM + lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `indicateurs_${date}.csv`;
+  a.click();
+  if (window.showToast) window.showToast('Export indicateurs généré', 'info');
 }
 
 // ═══════════════════ HELPERS DE RENDU ═══════════════════

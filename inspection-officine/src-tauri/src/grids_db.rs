@@ -619,3 +619,525 @@ pub fn import_grid_from_json(
 
     Ok(grid.id)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Database;
+    use crate::audit_db::AuditDatabase;
+    use crate::grid::{GridInfo, Section, Criterion};
+    use crate::users::User;
+    use rusqlite::{Connection, params};
+    use std::sync::{Mutex, Arc};
+
+    fn create_test_grid_db() -> (Database, AuditDatabase) {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON;").ok();
+        conn.execute_batch("
+            -- Tables users
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE,
+                full_name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'inspector',
+                password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+                must_change_password INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+
+            -- Tables grilles
+            CREATE TABLE grids (
+                id TEXT NOT NULL,
+                version TEXT NOT NULL DEFAULT '1',
+                name TEXT NOT NULL,
+                code TEXT NOT NULL,
+                description TEXT,
+                icon TEXT,
+                color TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                is_current INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                created_by TEXT,
+                snapshot_before TEXT,
+                snapshot_after TEXT,
+                PRIMARY KEY (id, version)
+            );
+
+            CREATE TABLE IF NOT EXISTS grid_versions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                grid_id         TEXT NOT NULL,
+                version         TEXT NOT NULL,
+                snapshot_json   TEXT NOT NULL,
+                change_summary  TEXT,
+                created_by      TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                UNIQUE(grid_id, version)
+            );
+
+            CREATE TABLE grid_sections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                grid_id TEXT NOT NULL,
+                grid_version TEXT NOT NULL,
+                section_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                display_order INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(grid_id, grid_version, section_id)
+            );
+
+            CREATE TABLE grid_criteria (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                grid_id TEXT NOT NULL,
+                grid_version TEXT NOT NULL,
+                section_id INTEGER NOT NULL,
+                criterion_id INTEGER NOT NULL,
+                reference TEXT NOT NULL,
+                description TEXT NOT NULL,
+                pre_opening INTEGER NOT NULL DEFAULT 0,
+                display_order INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(grid_id, grid_version, section_id, criterion_id)
+            );
+
+            -- Table audit
+            CREATE TABLE audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                user_id TEXT,
+                username TEXT,
+                action TEXT NOT NULL,
+                entity_type TEXT,
+                entity_id TEXT,
+                details TEXT,
+                before_snapshot TEXT,
+                after_snapshot TEXT
+            );
+        ").unwrap();
+
+        // Créer un utilisateur de test
+        conn.execute(
+            "INSERT INTO users (id, username, full_name, role, password_hash) VALUES ('u1','admin','Admin','admin','hash')",
+            [],
+        ).unwrap();
+
+        let db = Database { conn: Arc::new(Mutex::new(conn)) };
+
+        // Créer une seconde connection pour audit
+        let audit_conn = Connection::open_in_memory().unwrap();
+        audit_conn.execute_batch("PRAGMA foreign_keys=ON;").ok();
+        audit_conn.execute_batch("
+            CREATE TABLE audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                user_id TEXT,
+                username TEXT,
+                action TEXT NOT NULL,
+                entity_type TEXT,
+                entity_id TEXT,
+                details TEXT,
+                before_snapshot TEXT,
+                after_snapshot TEXT
+            );
+        ").unwrap();
+        let audit_db = AuditDatabase { conn: Arc::new(Mutex::new(audit_conn)) };
+
+        (db, audit_db)
+    }
+
+    fn create_test_user() -> User {
+        User {
+            id: "u1".to_string(),
+            username: "admin".to_string(),
+            full_name: "Admin".to_string(),
+            role: "admin".to_string(),
+            active: true,
+            must_change_password: false,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_save_and_load_grid() {
+        let (db, audit_db) = create_test_grid_db();
+        let user = create_test_user();
+
+        let grid = GridInfo {
+            id: "grid1".to_string(),
+            name: "Test Grid".to_string(),
+            code: "TEST-001".to_string(),
+            version: "1".to_string(),
+            description: "Test grid description".to_string(),
+            icon: "📋".to_string(),
+            color: "#ff0000".to_string(),
+            sections: vec![
+                Section {
+                    id: 1,
+                    title: "Section 1".to_string(),
+                    items: vec![
+                        Criterion {
+                            id: 1,
+                            reference: "C1".to_string(),
+                            description: "Criterion 1".to_string(),
+                            pre_opening: false,
+                        },
+                        Criterion {
+                            id: 2,
+                            reference: "C2".to_string(),
+                            description: "Criterion 2".to_string(),
+                            pre_opening: true,
+                        },
+                    ],
+                },
+                Section {
+                    id: 2,
+                    title: "Section 2".to_string(),
+                    items: vec![
+                        Criterion {
+                            id: 3,
+                            reference: "C3".to_string(),
+                            description: "Criterion 3".to_string(),
+                            pre_opening: false,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        let result = save_grid(&db, &audit_db, &grid, &user);
+        assert!(result.is_ok());
+
+        // Charger la grille depuis la BD
+        let loaded = find_grid_by_id(&db, "grid1", None);
+        assert!(loaded.is_some());
+
+        let loaded_grid = loaded.unwrap();
+        assert_eq!(loaded_grid.id, "grid1");
+        assert_eq!(loaded_grid.name, "Test Grid");
+        assert_eq!(loaded_grid.code, "TEST-001");
+        assert_eq!(loaded_grid.version, "1");
+        assert_eq!(loaded_grid.sections.len(), 2);
+        assert_eq!(loaded_grid.sections[0].items.len(), 2);
+        assert_eq!(loaded_grid.sections[1].items.len(), 1);
+    }
+
+    #[test]
+    fn test_load_grids_empty() {
+        let (db, audit_db) = create_test_grid_db();
+        let _ = audit_db; // Suppress unused warning
+
+        let grids = load_grids_from_db(&db);
+        assert_eq!(grids.len(), 0);
+    }
+
+    #[test]
+    fn test_load_multiple_grids() {
+        let (db, audit_db) = create_test_grid_db();
+        let user = create_test_user();
+
+        // Créer 2 grilles
+        let grid1 = GridInfo {
+            id: "grid1".to_string(),
+            name: "Grid 1".to_string(),
+            code: "G1".to_string(),
+            version: "1".to_string(),
+            description: "Desc 1".to_string(),
+            icon: "1".to_string(),
+            color: "#000".to_string(),
+            sections: vec![],
+        };
+
+        let grid2 = GridInfo {
+            id: "grid2".to_string(),
+            name: "Grid 2".to_string(),
+            code: "G2".to_string(),
+            version: "1".to_string(),
+            description: "Desc 2".to_string(),
+            icon: "2".to_string(),
+            color: "#fff".to_string(),
+            sections: vec![],
+        };
+
+        save_grid(&db, &audit_db, &grid1, &user).unwrap();
+        save_grid(&db, &audit_db, &grid2, &user).unwrap();
+
+        let grids = load_grids_from_db(&db);
+        assert_eq!(grids.len(), 2);
+    }
+
+    #[test]
+    fn test_archive_grid() {
+        let (db, audit_db) = create_test_grid_db();
+        let user = create_test_user();
+
+        let grid = GridInfo {
+            id: "grid1".to_string(),
+            name: "Grid".to_string(),
+            code: "G1".to_string(),
+            version: "1".to_string(),
+            description: "Desc".to_string(),
+            icon: "📋".to_string(),
+            color: "#f00".to_string(),
+            sections: vec![],
+        };
+
+        save_grid(&db, &audit_db, &grid, &user).unwrap();
+
+        // Vérifier que la grille est accessible
+        assert!(find_grid_by_id(&db, "grid1", None).is_some());
+
+        // Archiver
+        let result = archive_grid(&db, &audit_db, "grid1", &user);
+        assert!(result.is_ok());
+
+        // Vérifier que la grille n'est plus dans les grilles actives
+        let grids = load_grids_from_db(&db);
+        assert_eq!(grids.len(), 0);
+
+        // Vérifier que la grille est toujours accessible par ID
+        assert!(find_grid_by_id(&db, "grid1", None).is_some());
+    }
+
+    #[test]
+    fn test_find_grid_by_id_not_found() {
+        let (db, audit_db) = create_test_grid_db();
+        let _ = audit_db; // Suppress unused warning
+
+        let result = find_grid_by_id(&db, "nonexistent", None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_export_and_import_grid_json() {
+        let (db, audit_db) = create_test_grid_db();
+        let user = create_test_user();
+
+        // Créer une grille
+        let original = GridInfo {
+            id: "grid1".to_string(),
+            name: "Export Grid".to_string(),
+            code: "EXP-001".to_string(),
+            version: "1".to_string(),
+            description: "For export test".to_string(),
+            icon: "📤".to_string(),
+            color: "#00ff00".to_string(),
+            sections: vec![
+                Section {
+                    id: 1,
+                    title: "Export Section".to_string(),
+                    items: vec![
+                        Criterion {
+                            id: 1,
+                            reference: "E1".to_string(),
+                            description: "Export criterion".to_string(),
+                            pre_opening: false,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        save_grid(&db, &audit_db, &original, &user).unwrap();
+
+        // Exporter
+        let json = export_grid_json(&db, "grid1", None).unwrap();
+        assert!(json.contains("Export Grid"));
+        assert!(json.contains("EXP-001"));
+
+        // Importer avec un nouvel ID
+        let result = import_grid_from_json(&db, &audit_db, &json, &user);
+        assert!(result.is_ok());
+
+        let imported_id = result.unwrap();
+        assert_ne!(imported_id, "grid1");
+
+        // Vérifier l'import
+        let imported = find_grid_by_id(&db, &imported_id, None);
+        assert!(imported.is_some());
+        let imported_grid = imported.unwrap();
+        assert_eq!(imported_grid.name, "Export Grid");
+        assert_eq!(imported_grid.sections.len(), 1);
+    }
+
+    #[test]
+    fn test_versioning_grid() {
+        let (db, audit_db) = create_test_grid_db();
+        let user = create_test_user();
+
+        // Créer version initiale
+        let v1 = GridInfo {
+            id: "grid1".to_string(),
+            name: "Grid V1".to_string(),
+            code: "G1".to_string(),
+            version: "1".to_string(),
+            description: "Version 1".to_string(),
+            icon: "V1".to_string(),
+            color: "#f00".to_string(),
+            sections: vec![
+                Section {
+                    id: 1,
+                    title: "Section 1".to_string(),
+                    items: vec![],
+                },
+            ],
+        };
+
+        save_grid(&db, &audit_db, &v1, &user).unwrap();
+
+        // Créer version 2
+        let new_version = create_version(&db, &audit_db, "grid1", "Added section 2", &user);
+        assert!(new_version.is_ok());
+        assert_eq!(new_version.unwrap(), "2");
+
+        // Ajouter section 2 à la version 2
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO grid_sections (grid_id, grid_version, section_id, title, display_order)
+             VALUES ('grid1', '2', 2, 'Section 2', 1)",
+            [],
+        ).ok();
+
+        // Vérifier les versions
+        let versions = list_versions(&db, "grid1").unwrap();
+        assert_eq!(versions.len(), 2);
+
+        // Vérifier snapshot version 1
+        let v1_snapshot = get_version_snapshot(&db, "grid1", "1");
+        assert!(v1_snapshot.is_ok());
+        let v1_grid = v1_snapshot.unwrap();
+        assert_eq!(v1_grid.sections.len(), 1);
+
+        // Vérifier snapshot version 2
+        let v2_snapshot = get_version_snapshot(&db, "grid1", "2");
+        assert!(v2_snapshot.is_ok());
+        let v2_grid = v2_snapshot.unwrap();
+        assert_eq!(v2_grid.sections.len(), 2);
+    }
+
+    #[test]
+    fn test_rollback_grid_version() {
+        let (db, audit_db) = create_test_grid_db();
+        let user = create_test_user();
+
+        // Créer version 1 avec 1 section
+        let v1 = GridInfo {
+            id: "grid1".to_string(),
+            name: "Rollback Test".to_string(),
+            code: "RB-001".to_string(),
+            version: "1".to_string(),
+            description: "For rollback".to_string(),
+            icon: "🔄".to_string(),
+            color: "#f00".to_string(),
+            sections: vec![
+                Section {
+                    id: 1,
+                    title: "Original Section".to_string(),
+                    items: vec![],
+                },
+            ],
+        };
+
+        save_grid(&db, &audit_db, &v1, &user).unwrap();
+
+        // Créer version 2 (modifiée)
+        create_version(&db, &audit_db, "grid1", "Modified", &user).unwrap();
+
+        // Modifier version 2 (ajouter section)
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO grid_sections (grid_id, grid_version, section_id, title, display_order)
+             VALUES ('grid1', '2', 2, 'Modified Section', 1)",
+            [],
+        ).ok();
+        drop(conn);
+
+        // Vérifier état courant (2 sections)
+        let current = find_grid_by_id(&db, "grid1", None).unwrap();
+        assert_eq!(current.sections.len(), 2);
+
+        // Rollback vers version 1
+        let result = rollback_to_version(&db, &audit_db, "grid1", "1", &user);
+        assert!(result.is_ok());
+
+        // Vérifier rollback (1 section)
+        let rolled_back = find_grid_by_id(&db, "grid1", None).unwrap();
+        assert_eq!(rolled_back.sections.len(), 1);
+        assert_eq!(rolled_back.sections[0].title, "Original Section");
+    }
+
+    #[test]
+    fn test_update_grid_meta() {
+        let (db, audit_db) = create_test_grid_db();
+        let user = create_test_user();
+
+        let grid = GridInfo {
+            id: "grid1".to_string(),
+            name: "Original Name".to_string(),
+            code: "ORIG".to_string(),
+            version: "1".to_string(),
+            description: "Original Description".to_string(),
+            icon: "📋".to_string(),
+            color: "#000".to_string(),
+            sections: vec![],
+        };
+
+        save_grid(&db, &audit_db, &grid, &user).unwrap();
+
+        // Mettre à jour
+        let result = update_grid_meta(&db, &audit_db, "grid1",
+            Some("Updated Name".to_string()),
+            Some("Updated Description".to_string()),
+            Some("✏️".to_string()),
+            Some("#fff".to_string()),
+            &user
+        );
+        assert!(result.is_ok());
+
+        // Vérifier
+        let updated = find_grid_by_id(&db, "grid1", None).unwrap();
+        assert_eq!(updated.name, "Updated Name");
+        assert_eq!(updated.description, "Updated Description");
+        assert_eq!(updated.icon, "✏️");
+        assert_eq!(updated.color, "#fff");
+    }
+
+    #[test]
+    fn test_find_grid_by_specific_version() {
+        let (db, audit_db) = create_test_grid_db();
+        let user = create_test_user();
+
+        let v1 = GridInfo {
+            id: "grid1".to_string(),
+            name: "V1".to_string(),
+            code: "G1".to_string(),
+            version: "1".to_string(),
+            description: "Version 1".to_string(),
+            icon: "1".to_string(),
+            color: "#000".to_string(),
+            sections: vec![
+                Section {
+                    id: 1,
+                    title: "Section 1".to_string(),
+                    items: vec![],
+                },
+            ],
+        };
+
+        save_grid(&db, &audit_db, &v1, &user).unwrap();
+        create_version(&db, &audit_db, "grid1", "V2 created", &user).unwrap();
+
+        // Modifier V2
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO grid_sections (grid_id, grid_version, section_id, title, display_order)
+             VALUES ('grid1', '2', 2, 'Section 2', 1)",
+            [],
+        ).ok();
+        drop(conn);
+
+        // Récupérer V1 explicite
+        let v1_explicit = find_grid_by_id(&db, "grid1", Some("1")).unwrap();
+        assert_eq!(v1_explicit.sections.len(), 1);
+
+        // Récupérer V2 explicite
+        let v2_explicit = find_grid_by_id(&db, "grid1", Some("2")).unwrap();
+        assert_eq!(v2_explicit.sections.len(), 2);
+    }
+}

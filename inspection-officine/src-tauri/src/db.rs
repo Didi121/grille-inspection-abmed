@@ -11,10 +11,25 @@ impl Database {
     pub fn new(app_dir: PathBuf) -> Self {
         std::fs::create_dir_all(&app_dir).ok();
         let db_path = app_dir.join("inspections.db");
+        
         let conn = Connection::open(&db_path)
             .expect("Impossible d'ouvrir la base de données");
 
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;").ok();
+        // Configuration pour améliorer les performances concurrentes
+        conn.execute_batch("
+            PRAGMA journal_mode=WAL;
+            PRAGMA foreign_keys=ON;
+            PRAGMA synchronous=NORMAL;
+            PRAGMA cache_size=1000;
+            PRAGMA temp_store=MEMORY;
+        ").expect("Erreur configuration base de données");
+
+        // Vérifier que le mode WAL est activé
+        let wal_mode: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("Impossible de vérifier le mode journal");
+        if wal_mode != "wal" {
+            eprintln!("⚠️  Mode WAL non activé: {}", wal_mode);
+        }
 
         conn.execute_batch("
             -- Utilisateurs

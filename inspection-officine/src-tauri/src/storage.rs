@@ -50,6 +50,7 @@ pub struct CreateInspectionRequest {
     pub establishment: String,
     pub inspection_type: String,
     pub inspectors: Vec<String>,
+    pub extra_meta: Option<serde_json::Value>,
 }
 
 // ── Créer ──
@@ -58,11 +59,13 @@ pub fn create_inspection(db: &Database, req: &CreateInspectionRequest, user_id: 
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let id = uuid::Uuid::new_v4().to_string();
     let inspectors_json = serde_json::to_string(&req.inspectors).unwrap_or_default();
+    let extra_meta_json = req.extra_meta.as_ref()
+        .and_then(|v| serde_json::to_string(v).ok());
 
     conn.execute(
-        "INSERT INTO inspections (id, grid_id, status, date_inspection, establishment, inspection_type, inspectors, created_by)
-         VALUES (?1,?2,'draft',?3,?4,?5,?6,?7)",
-        params![id, req.grid_id, req.date_inspection, req.establishment, req.inspection_type, inspectors_json, user_id],
+        "INSERT INTO inspections (id, grid_id, status, date_inspection, establishment, inspection_type, inspectors, created_by, extra_meta)
+         VALUES (?1,?2,'draft',?3,?4,?5,?6,?7,?8)",
+        params![id, req.grid_id, req.date_inspection, req.establishment, req.inspection_type, inspectors_json, user_id, extra_meta_json],
     ).map_err(|e| format!("Erreur création inspection : {}", e))?;
 
     Ok(id)
@@ -224,10 +227,12 @@ pub fn save_response(
 pub fn update_inspection_meta(db: &Database, inspection_id: &str, req: &CreateInspectionRequest) -> Result<(), String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let inspectors_json = serde_json::to_string(&req.inspectors).unwrap_or_default();
+    let extra_meta_json = req.extra_meta.as_ref()
+        .and_then(|v| serde_json::to_string(v).ok());
     conn.execute(
         "UPDATE inspections SET date_inspection=?1, establishment=?2, inspection_type=?3,
-         inspectors=?4, updated_at=datetime('now','localtime') WHERE id=?5",
-        params![req.date_inspection, req.establishment, req.inspection_type, inspectors_json, inspection_id],
+         inspectors=?4, extra_meta=?5, updated_at=datetime('now','localtime') WHERE id=?6",
+        params![req.date_inspection, req.establishment, req.inspection_type, inspectors_json, extra_meta_json, inspection_id],
     ).map_err(|e| e.to_string())?;
     Ok(())
 }

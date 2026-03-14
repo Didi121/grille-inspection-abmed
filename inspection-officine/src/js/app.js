@@ -20,7 +20,7 @@ import { renderAudit, exportAuditCSV } from './audit.js';
 import { renderAnalytics, exportIndicateursCSV } from './analytics.js';
 import { renderBackup, doManualBackup, doRestoreBackup, doDeleteBackup, doConfigureBackup, doExportLocalBackup, doImportLocalBackup } from './backup.js';
 import { generatePDFReport, addPDFExportButton } from './pdf-export.js';
-import { renderPlanning, planningNavMonth, showNewPlanningModal, planDeptChange, doCreatePlanning, showIndispoModal, doCreateIndispo, deleteIndispo, setPlanningStatus, deletePlanning, showObjectifModal, saveObjectif, recalcObjTotal } from './planning.js';
+import { renderPlanning, planningNavMonth, showNewPlanningModal, planDeptChange, doCreatePlanning, showIndispoModal, doCreateIndispo, deleteIndispo, setPlanningStatus, deletePlanning, showObjectifModal, saveObjectif, recalcObjTotal, switchPlanningTab, showNewInspectorModal, doCreateInspector, editInspector, doUpdateInspector, deleteInspector } from './planning.js';
 import { DEPARTEMENTS, getCommunesByDept } from './benin-data.js';
 
 // ═══════════════════ SCREEN NAVIGATION ═══════════════════
@@ -404,6 +404,14 @@ window.deletePlanning = deletePlanning;
 window.showObjectifModal = showObjectifModal;
 window.saveObjectif = saveObjectif;
 window.recalcObjTotal = recalcObjTotal;
+
+// Planning - Inspector Management
+window.switchPlanningTab = switchPlanningTab;
+window.showNewInspectorModal = showNewInspectorModal;
+window.doCreateInspector = doCreateInspector;
+window.editInspector = editInspector;
+window.doUpdateInspector = doUpdateInspector;
+window.deleteInspector = deleteInspector;
 
 // Report versions
 window.showReportVersions = showReportVersions;

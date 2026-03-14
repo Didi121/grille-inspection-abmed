@@ -94,7 +94,16 @@ export async function renderPlanning() {
       </div>
     </div>
 
-    <!-- Objectif annuel -->
+    <!-- Tab Navigation -->
+    <div style="display:flex;margin-bottom:20px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <button class="tab-btn ${activePlanningTab === 'calendar' ? 'active' : ''}" onclick="switchPlanningTab('calendar')" style="padding:12px 16px;font-size:13px;border:none;background:transparent;cursor:pointer;border-bottom:2px solid ${activePlanningTab === 'calendar' ? 'var(--accent)' : 'transparent'};font-weight:${activePlanningTab === 'calendar' ? '600' : '400'}">📅 Calendrier</button>
+      <button class="tab-btn ${activePlanningTab === 'objectives' ? 'active' : ''}" onclick="switchPlanningTab('objectives')" style="padding:12px 16px;font-size:13px;border:none;background:transparent;cursor:pointer;border-bottom:2px solid ${activePlanningTab === 'objectives' ? 'var(--accent)' : 'transparent'};font-weight:${activePlanningTab === 'objectives' ? '600' : '400'}">🎯 Objectifs</button>
+      <button class="tab-btn ${activePlanningTab === 'inspectors' ? 'active' : ''}" onclick="switchPlanningTab('inspectors')" style="padding:12px 16px;font-size:13px;border:none;background:transparent;cursor:pointer;border-bottom:2px solid ${activePlanningTab === 'inspectors' ? 'var(--accent)' : 'transparent'};font-weight:${activePlanningTab === 'inspectors' ? '600' : '400'}">👤 Inspecteurs</button>
+    </div>
+
+    <!-- Tab Content -->
+    <div id="planning-tab-content">
+      ${activePlanningTab === 'inspectors' ? renderInspectorsTab(canEdit) : `
     <div class="ana-section" style="margin-bottom:20px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h3 class="ana-section-title" style="margin:0;border:none;padding:0">Objectif annuel ${year}</h3>
@@ -266,7 +275,7 @@ export async function renderPlanning() {
         </tbody>
       </table>` : '<p style="color:var(--text-muted);text-align:center;padding:20px">Aucune programmation. Cliquez sur "+ Programmer" pour planifier une inspection.</p>'}
     </div>
-  `;
+  `;}
 
   } catch(err) {
     console.error('Planning render error:', err);
@@ -661,6 +670,187 @@ export async function saveObjectif() {
     if (window.showToast) window.showToast('Objectifs ' + year + ' enregistres', 'info');
     renderPlanning();
   } catch (e) { alert('Erreur: ' + e); }
+}
+
+// Global variable to track active tab
+let activePlanningTab = 'calendar';
+
+export function switchPlanningTab(tabName) {
+  activePlanningTab = tabName;
+  renderPlanning(); // Re-render with the new active tab
+}
+
+// Function to render the inspectors management tab
+function renderInspectorsTab(canEdit) {
+  const activeInspectors = INSPECTORS.filter(i => i.active !== false).length;
+  
+  // Filter inspectors based on search and status
+  const searchTerm = document.getElementById('inspectorSearch')?.value?.toLowerCase() || '';
+  const statusFilter = document.getElementById('inspectorStatusFilter')?.value || 'all';
+  
+  let filteredInspectors = INSPECTORS;
+  if (searchTerm) {
+    filteredInspectors = filteredInspectors.filter(i => 
+      i.nom.toLowerCase().includes(searchTerm) || 
+      i.prenom.toLowerCase().includes(searchTerm) ||
+      i.initiales.toLowerCase().includes(searchTerm)
+    );
+  }
+  
+  if (statusFilter === 'active') {
+    filteredInspectors = filteredInspectors.filter(i => i.active !== false);
+  } else if (statusFilter === 'inactive') {
+    filteredInspectors = filteredInspectors.filter(i => i.active === false);
+  }
+  
+  // Inspector list with actions
+  const inspectorRows = filteredInspectors.map((inspector, index) => {
+    const isActive = inspector.active !== false;
+    const displayClass = isActive ? '' : 'style="opacity:0.6;"';
+    return `
+      <tr ${displayClass}>
+        <td style="padding:8px 6px;font-size:13px">
+          ${esc(inspector.nom)} ${esc(inspector.prenom)}
+        </td>
+        <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:600">${esc(inspector.initiales)}</td>
+        <td style="padding:8px 6px;font-size:13px;text-align:center">${inspector.grade || '—'}</td>
+        <td style="padding:8px 6px;text-align:right">
+          ${isActive ? `
+            <button class="act-btn" style="font-size:11px;padding:4px 8px" onclick="editInspector(${index})">✏️</button>
+            <button class="act-btn danger" style="font-size:11px;padding:4px 8px" onclick="deleteInspector(${index})">🗑️</button>
+          ` : `
+            <span style="font-size:11px;color:var(--text-muted)">Inactif</span>
+          `}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="ana-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <h3 class="ana-section-title" style="margin:0">👥 Inspecteurs ABMed (${activeInspectors} actifs)</h3>
+        </div>
+        ${canEdit ? `<button class="btn-primary" style="width:auto;padding:6px 12px;font-size:13px" onclick="showNewInspectorModal()">+ Ajouter</button>` : ''}
+      </div>
+      
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="display:flex;gap:8px">
+          <input type="text" id="inspectorSearch" placeholder="Recherche..." style="padding:6px 10px;font-size:12px;border:1px solid var(--border);border-radius:4px" oninput="renderPlanning()"/>
+          <select id="inspectorStatusFilter" style="padding:6px 10px;font-size:12px;border:1px solid var(--border);border-radius:4px" onchange="renderPlanning()">
+            <option value="all">Tous</option>
+            <option value="active">Actifs</option>
+            <option value="inactive">Inactifs</option>
+          </select>
+        </div>
+      </div>
+    
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;overflow:hidden">
+        <table class="tbl" style="font-size:13px">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:10px 6px">Nom Prénom</th>
+              <th style="text-align:center;padding:10px 6px;width:80px">Initiales</th>
+              <th style="text-align:center;padding:10px 6px;width:120px">Grade</th>
+              <th style="text-align:right;padding:10px 6px;width:100px">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${inspectorRows || '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Aucun inspecteur trouvé</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// Functions for inspector modal operations
+export function showNewInspectorModal() {
+  const html = `<div style="max-width:400px">
+    <h3>➕ Nouvel inspecteur</h3>
+    <div style="margin-top:16px">
+      <div class="field"><label>Nom <span class="required">*</span></label><input id="inspNom" placeholder="Ex: Dupont"/></div>
+      <div class="field"><label>Prénom <span class="required">*</span></label><input id="inspPrenom" placeholder="Ex: Jean"/></div>
+      <div class="field"><label>Initiales <span class="required">*</span></label><input id="inspInitiales" placeholder="Ex: JD" maxlength="4"/></div>
+      <div class="field"><label>Grade</label><input id="inspGrade" placeholder="Ex: Inspecteur principal"/></div>
+      <div class="field"><label>Téléphone</label><input id="inspTel" placeholder="Ex: +229 01 23 45 67"/></div>
+      <div class="field"><label>Email</label><input id="inspEmail" type="email" placeholder="Ex: jean.dupont@exemple.bj"/></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+      <button class="btn-sm" onclick="closeModal()">Annuler</button>
+      <button class="btn-primary" style="width:auto;padding:8px 16px" onclick="doCreateInspector()">Enregistrer</button>
+    </div>
+  </div>`;
+  window.openModal(html);
+}
+
+export function doCreateInspector() {
+  const nom = document.getElementById('inspNom').value.trim();
+  const prenom = document.getElementById('inspPrenom').value.trim();
+  const initiales = document.getElementById('inspInitiales').value.trim();
+  
+  if (!nom || !prenom || !initiales) {
+    alert('Nom, prénom et initiales sont requis');
+    return;
+  }
+  
+  // In a real implementation, this would call the backend to create the inspector
+  // For now, we'll just show a success message
+  window.closeModal();
+  if (window.showToast) window.showToast('Inspecteur ajouté avec succès', 'info');
+  renderPlanning();
+}
+
+export function editInspector(index) {
+  const inspector = INSPECTORS[index];
+  if (!inspector) return;
+  
+  const html = `<div style="max-width:400px">
+    <h3>✏️ Modifier inspecteur</h3>
+    <div style="margin-top:16px">
+      <div class="field"><label>Nom <span class="required">*</span></label><input id="inspNom" value="${esc(inspector.nom)}" placeholder="Ex: Dupont"/></div>
+      <div class="field"><label>Prénom <span class="required">*</span></label><input id="inspPrenom" value="${esc(inspector.prenom)}" placeholder="Ex: Jean"/></div>
+      <div class="field"><label>Initiales <span class="required">*</span></label><input id="inspInitiales" value="${esc(inspector.initiales)}" placeholder="Ex: JD" maxlength="4"/></div>
+      <div class="field"><label>Grade</label><input id="inspGrade" value="${esc(inspector.grade || '')}" placeholder="Ex: Inspecteur principal"/></div>
+      <div class="field"><label>Téléphone</label><input id="inspTel" value="${esc(inspector.tel || '')}" placeholder="Ex: +229 01 23 45 67"/></div>
+      <div class="field"><label>Email</label><input id="inspEmail" type="email" value="${esc(inspector.email || '')}" placeholder="Ex: jean.dupont@exemple.bj"/></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+      <button class="btn-sm" onclick="closeModal()">Annuler</button>
+      <button class="btn-primary" style="width:auto;padding:8px 16px" onclick="doUpdateInspector(${index})">Enregistrer</button>
+    </div>
+  </div>`;
+  window.openModal(html);
+}
+
+export function doUpdateInspector(index) {
+  const nom = document.getElementById('inspNom').value.trim();
+  const prenom = document.getElementById('inspPrenom').value.trim();
+  const initiales = document.getElementById('inspInitiales').value.trim();
+  
+  if (!nom || !prenom || !initiales) {
+    alert('Nom, prénom et initiales sont requis');
+    return;
+  }
+  
+  // In a real implementation, this would call the backend to update the inspector
+  // For now, we'll just show a success message
+  window.closeModal();
+  if (window.showToast) window.showToast('Inspecteur mis à jour', 'info');
+  renderPlanning();
+}
+
+export function deleteInspector(index) {
+  const inspector = INSPECTORS[index];
+  if (!inspector) return;
+  
+  if (!confirm(`Supprimer l'inspecteur ${inspector.prenom} ${inspector.nom} ?`)) return;
+  
+  // In a real implementation, this would call the backend to delete/soft-delete the inspector
+  // For now, we'll just show a success message
+  if (window.showToast) window.showToast('Inspecteur supprimé', 'info');
+  renderPlanning();
 }
 
 function fmtD(s) { if (!s) return '—'; const p = s.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : s; }

@@ -1,0 +1,50 @@
+name: Security & Quality
+on: [push, pull_request]
+
+jobs:
+  rust-security:
+    name: Rust Security & Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: inspection-officine/src-tauri -> target
+
+      - name: Rust Audit
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: inspection-officine/src-tauri
+
+      - name: Rust Clippy
+        run: cargo clippy -- -D warnings
+        working-directory: inspection-officine/src-tauri
+
+      - name: Rust Test
+        run: cargo test
+        working-directory: inspection-officine/src-tauri
+
+  js-security:
+    name: JS Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: inspection-officine/package-lock.json
+
+      - name: JS Audit
+        run: npm audit --audit-level=high
+        working-directory: inspection-officine

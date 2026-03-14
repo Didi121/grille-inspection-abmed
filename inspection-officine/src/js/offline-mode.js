@@ -43,19 +43,15 @@ export async function initOfflineMode() {
 
 // Vérifier la connectivité
 async function checkConnectivity() {
+  // En mode Tauri (app locale SQLite), pas besoin de vérifier la connectivité réseau
+  // L'app fonctionne entièrement en local — on considère toujours "en ligne"
+  if (window.__TAURI_INTERNALS__) {
+    handleOnline();
+    return;
+  }
   try {
-    // Tester la connectivité en faisant une requête simple
-    const response = await fetch('/health', { 
-      method: 'HEAD',
-      cache: 'no-cache',
-      timeout: 5000
-    });
-    
-    if (response.ok) {
-      handleOnline();
-    } else {
-      handleOffline();
-    }
+    const response = await fetch('/health', { method: 'HEAD', cache: 'no-cache' });
+    if (response.ok) { handleOnline(); } else { handleOffline(); }
   } catch (error) {
     handleOffline();
   }
